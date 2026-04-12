@@ -1,3 +1,10 @@
+"""学習済み WESAD 1D-CNN を評価し、必要に応じて Tent 適応を行う。
+
+`train.py` が保存した LOSO チェックポイントを読み込み、指定したターゲット被験者
+に対して source 評価または Tent 評価を実行する。Tent 評価では推論中に
+BatchNorm1d の affine パラメータだけを更新する。
+"""
+
 import os
 from datetime import datetime
 
@@ -13,6 +20,7 @@ from utils import get_dataset, get_device, get_model, set_seed
 
 
 def checkpoint_path(args):
+    """`train.py` が保存したターゲット被験者用チェックポイントのパスを返す。"""
     return os.path.join(
         args.resume,
         args.dataset,
@@ -23,6 +31,7 @@ def checkpoint_path(args):
 
 
 def make_output_dir(args):
+    """評価結果を保存する日時付きログディレクトリを作る。"""
     current_time = datetime.now().strftime("%y%m%d_%H%M%S")
     out_dir = os.path.join(args.out_path, args.dataset, args.adaption, args.target_domain, current_time)
     os.makedirs(out_dir, exist_ok=True)
@@ -32,6 +41,7 @@ def make_output_dir(args):
 
 
 def main():
+    """チェックポイント読み込み、評価、ログ保存までを実行する。"""
     args = parse_args("Evaluate WESAD source or test-time adaptation.")
     set_seed(args.seed)
     device = get_device(args.device)
@@ -47,9 +57,11 @@ def main():
     base_model.load_state_dict(checkpoint["model_state_dict"], strict=True)
 
     criterion = nn.BCEWithLogitsLoss()
+    # source_metrics は、Tent を適用する前の通常推論の基準値として残す。
     source_metrics = evaluate_model(base_model, target_loader, device, criterion=criterion)
 
     model = get_adaptation(args, base_model)
+    # Tent の場合は forward 内で backward が走るため、adapt=True で勾配計算を有効にする。
     adapt_metrics = evaluate_model(model, target_loader, device, criterion=criterion, adapt=args.adaption != "source")
 
     record = {

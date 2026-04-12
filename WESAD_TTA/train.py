@@ -1,3 +1,10 @@
+"""WESAD の 1D-CNN を LOSO で学習するメインプログラム。
+
+外側 LOSO では 1 名の被験者を完全なテスト対象として残し、残りの被験者で
+学習する。さらに内側 LOSO を使って最終学習に使う epoch 数を決めることで、
+テスト被験者の情報を使わずに early stopping 相当の判断を行う。
+"""
+
 import copy
 import os
 from datetime import datetime
@@ -17,6 +24,11 @@ from utils import get_device, get_model, set_seed
 
 
 def fit_model(model, train_loader, val_loader, args, device, pos_weight=None, patience=None):
+    """1 つのモデルを指定 epoch 数だけ学習する。
+
+    `val_loader` がある場合は検証 loss が最も小さい重みを保持する。
+    `patience` が指定されていれば、検証 loss の改善が止まった時点で早期終了する。
+    """
     if pos_weight is not None:
         pos_weight = pos_weight.to(device)
     criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
@@ -57,6 +69,7 @@ def fit_model(model, train_loader, val_loader, args, device, pos_weight=None, pa
         history["loss"].append(total_loss / max(total_samples, 1))
         history["accuracy"].append(total_correct / max(total_samples, 1))
 
+        # 最終学習では検証被験者を置かないため、ここで epoch を継続する。
         if val_loader is None:
             continue
 
@@ -82,6 +95,7 @@ def fit_model(model, train_loader, val_loader, args, device, pos_weight=None, pa
 
 
 def train_with_subject_validation(subjects_data, train_subjects, val_subject, args, device):
+    """内側 LOSO の 1 fold を学習し、検証被験者の性能を返す。"""
     x_train, y_train = stack_subjects(subjects_data, train_subjects)
     x_val = subjects_data[val_subject]["X"]
     y_val = subjects_data[val_subject]["y"]
@@ -116,6 +130,10 @@ def train_with_subject_validation(subjects_data, train_subjects, val_subject, ar
 
 
 def run_inner_loso_cv(subjects_data, inner_subjects, args, device):
+    """外側テスト被験者を除いた集合で内側 LOSO を回す。
+
+    各 fold で得られた best epoch の平均を、外側 fold の最終学習 epoch として使う。
+    """
     inner_results = []
     for val_subject in inner_subjects:
         train_subjects = [subj for subj in inner_subjects if subj != val_subject]
@@ -153,6 +171,7 @@ def run_inner_loso_cv(subjects_data, inner_subjects, args, device):
 
 
 def train_final_model(subjects_data, train_subjects, selected_epochs, args, device):
+    """内側 LOSO で決めた epoch 数を使い、訓練被験者全体で最終学習する。"""
     x_train, y_train = stack_subjects(subjects_data, train_subjects)
     x_train, y_train = shuffle(x_train, y_train, random_state=args.seed)
     train_loader = make_loader(x_train, y_train, args.batch_size, shuffle_data=True, num_workers=args.num_workers)
@@ -173,10 +192,16 @@ def train_final_model(subjects_data, train_subjects, selected_epochs, args, devi
 
 
 def checkpoint_path(args, test_subject):
+    """外側 LOSO fold のチェックポイント保存パスを返す。"""
     return os.path.join(args.resume, args.dataset, args.model, test_subject, f"{args.dataset}_{test_subject}_checkpoint.pt")
 
 
 def save_loso_checkpoint(args, model, test_subject, train_subjects, selected_epochs, test_metrics, inner_summary):
+    """学習済みモデルと fold のメタ情報を保存する。
+
+    `adapt.py` で再利用できるよう、`model_state_dict` だけでなく、テスト被験者、
+    学習被験者、評価指標、内側 LOSO の概要も同じファイルに入れる。
+    """
     save_path = checkpoint_path(args, test_subject)
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
     torch.save(
@@ -205,6 +230,7 @@ def save_loso_checkpoint(args, model, test_subject, train_subjects, selected_epo
 
 
 def make_output_dir(args):
+    """ログ出力用の日時付きディレクトリを作成し、実行設定を保存する。"""
     current_time = datetime.now().strftime("%y%m%d_%H%M%S")
     out_dir = os.path.join(args.out_path, args.dataset, "train_loso", current_time)
     os.makedirs(out_dir, exist_ok=True)
@@ -214,6 +240,7 @@ def make_output_dir(args):
 
 
 def main():
+    """設定読み込みから LOSO 学習、結果保存までを実行する。"""
     args = parse_args("Train WESAD 1D-CNN source models with nested LOSO.")
     set_seed(args.seed)
     device = get_device(args.device)

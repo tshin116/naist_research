@@ -1,3 +1,4 @@
+# Tent による test-time adaptation の設定。
 adaption: tent
 tent_lr: 0.0001
 tent_steps: 1

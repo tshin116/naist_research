@@ -1,3 +1,9 @@
+"""WESAD 二値分類で使う評価指標をまとめたモジュール。
+
+この実験ではストレス検出の正例が少なくなりやすいため、accuracy だけでなく
+非ストレス、ストレスそれぞれの F1 と mean F1 を必ず記録する。
+"""
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -5,6 +11,11 @@ from sklearn.metrics import confusion_matrix, f1_score
 
 
 def compute_pos_weight(y_data):
+    """`BCEWithLogitsLoss` に渡す正例クラス重みを計算する。
+
+    ストレス窓が少ない fold でも正例を無視した学習になりにくいよう、
+    `negative_count / positive_count` を `pos_weight` として使う。
+    """
     positive_count = int(np.sum(y_data == 1))
     negative_count = int(np.sum(y_data == 0))
     if positive_count == 0:
@@ -13,6 +24,11 @@ def compute_pos_weight(y_data):
 
 
 def evaluate_model(model, data_loader, device, criterion=None, adapt=False):
+    """モデルを評価し、loss と分類指標を辞書で返す。
+
+    `adapt=False` の通常評価では `torch.no_grad()` を使う。Tent 評価では
+    forward 中に backward が必要なため、`adapt=True` として勾配計算を有効にする。
+    """
     if criterion is None:
         criterion = nn.BCEWithLogitsLoss()
 
@@ -59,6 +75,7 @@ def evaluate_model(model, data_loader, device, criterion=None, adapt=False):
 
 
 def format_confusion_matrix(conf_matrix):
+    """2 クラス混同行列をログで読みやすい文字列に整形する。"""
     tn, fp, fn, tp = conf_matrix.ravel()
     return (
         "Confusion Matrix (rows=true, cols=pred)\n"

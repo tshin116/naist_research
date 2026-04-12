@@ -1,3 +1,10 @@
+"""WESAD データセットの読み込みと前処理。
+
+WESAD の胸部センサ信号を被験者ごとに読み込み、固定長の時系列窓へ分割する。
+このファイルでは、元ラベルをストレス二値分類へ写像し、被験者ごとの冒頭窓を
+基準に標準化したうえで PyTorch の `DataLoader` を作成する。
+"""
+
 import os
 import pickle
 
@@ -11,7 +18,13 @@ LABEL_MAPPING = {1: 0, 2: 1, 3: 0, 4: 0}
 
 
 def get_window(chest, label_arr, start, end, window_size):
+    """1 つの時間窓を切り出し、8 チャンネルの行列と代表ラベルを返す。
+
+    胸部センサから ECG、EDA、EMG、Resp、Temp、ACC x/y/z を取り出す。
+    ラベルは窓内の最頻値を採用する。信号長が足りない場合は 0 padding する。
+    """
     def get_signal(key):
+        """単一センサ信号を指定区間で取り出し、窓長へそろえる。"""
         signal = np.array(chest.get(key, np.zeros(window_size))[start:end]).ravel()
         if len(signal) < window_size:
             signal = np.pad(signal, (0, window_size - len(signal)))
@@ -36,6 +49,7 @@ def get_window(chest, label_arr, start, end, window_size):
 
 
 def segment_data_raw(data_dict, window_size):
+    """被験者 1 名分の連続信号を固定長窓へ分割する。"""
     if "signal" not in data_dict or "label" not in data_dict:
         return np.array([]), np.array([])
 
@@ -55,6 +69,11 @@ def segment_data_raw(data_dict, window_size):
 
 
 def filter_map_labels_binary(x_data, y_data):
+    """WESAD の元ラベルをストレス二値分類のラベルへ変換する。
+
+    使用するラベルは 1, 2, 3, 4 のみとし、1, 3, 4 を非ストレス `0`、
+    2 をストレス `1` として扱う。
+    """
     valid = np.isin(y_data, list(LABEL_MAPPING.keys()))
     x_data, y_data = x_data[valid], y_data[valid]
     y_mapped = np.array([LABEL_MAPPING[val] for val in y_data], dtype=np.int64)
@@ -62,6 +81,7 @@ def filter_map_labels_binary(x_data, y_data):
 
 
 def load_subject_data(folder, window_size):
+    """被験者フォルダから `.pkl` を読み込み、窓分割まで実行する。"""
     files = [name for name in os.listdir(folder) if name.endswith(".pkl")]
     if not files:
         return np.array([]), np.array([])
@@ -72,6 +92,7 @@ def load_subject_data(folder, window_size):
 
 
 def discover_subjects(dataset_dir):
+    """データセットディレクトリから `S2` のような被験者フォルダを列挙する。"""
     return [
         name
         for name in sorted(os.listdir(dataset_dir))
@@ -80,6 +101,11 @@ def discover_subjects(dataset_dir):
 
 
 def load_data_per_subject(args):
+    """全被験者のデータを読み込み、被験者単位で標準化して返す。
+
+    標準化は被験者ごとに行う。各被験者の最初の `calibration_windows` 窓だけで
+    scaler を fit することで、将来のテスト区間全体の統計を使いすぎない設計にしている。
+    """
     subjects_data = {}
     dataset_dir = os.path.abspath(args.dataset_dir)
     if not os.path.exists(dataset_dir):
@@ -97,6 +123,7 @@ def load_data_per_subject(args):
             continue
 
         x_sub, y_sub = filter_map_labels_binary(x_sub, y_sub)
+        # StandardScaler は 2 次元入力を受け取るため、窓とチャンネルを一度 flatten する。
         flat = x_sub.reshape(x_sub.shape[0], -1)
         scaler = StandardScaler()
         if len(flat) > args.calibration_windows:
@@ -112,24 +139,36 @@ def load_data_per_subject(args):
 
 
 def stack_subjects(subjects_data, subject_list):
+    """複数被験者の配列を結合し、学習用の X/y にまとめる。"""
     x_list = [subjects_data[subj]["X"] for subj in subject_list]
     y_list = [subjects_data[subj]["y"] for subj in subject_list]
     return np.vstack(x_list), np.concatenate(y_list)
 
 
 def prepare_tensors(x_data, y_data):
+    """NumPy 配列を Conv1d 用の PyTorch テンソルへ変換する。
+
+    前処理後の形状は `(batch, time, channel)` だが、PyTorch の `Conv1d` は
+    `(batch, channel, time)` を要求するため、ここで軸を入れ替える。
+    """
     x_tensor = torch.from_numpy(np.transpose(x_data, (0, 2, 1))).float()
     y_tensor = torch.from_numpy(y_data.astype(np.float32))
     return x_tensor, y_tensor
 
 
 def make_loader(x_data, y_data, batch_size, shuffle_data=False, num_workers=0):
+    """X/y 配列から PyTorch `DataLoader` を作る。"""
     x_tensor, y_tensor = prepare_tensors(x_data, y_data)
     dataset = TensorDataset(x_tensor, y_tensor)
     return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle_data, num_workers=num_workers)
 
 
 def get_loso_loaders(args, subjects_data=None):
+    """指定した `target_domain` をテスト被験者とする LOSO 用 loader を返す。
+
+    戻り値は source loader、target loader、学習に使った被験者 ID のリスト。
+    `adapt.py` では target loader だけを評価に使う。
+    """
     if subjects_data is None:
         subjects_data = load_data_per_subject(args)
 
