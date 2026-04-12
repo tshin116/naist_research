@@ -1,0 +1,11 @@
+dataset: wesad
+dataset_dir: ../self_learning_wesad/WESAD
+subjects: null
+window_seconds: 5
+sampling_rate: 700
+window_size: 3500
+num_channels: 8
+num_classes: 2
+calibration_windows: 60
+batch_size: 64
+num_workers: 0

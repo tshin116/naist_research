@@ -1,0 +1,147 @@
+import os
+import pickle
+
+import numpy as np
+import torch
+from sklearn.preprocessing import StandardScaler
+from torch.utils.data import DataLoader, TensorDataset
+
+
+LABEL_MAPPING = {1: 0, 2: 1, 3: 0, 4: 0}
+
+
+def get_window(chest, label_arr, start, end, window_size):
+    def get_signal(key):
+        signal = np.array(chest.get(key, np.zeros(window_size))[start:end]).ravel()
+        if len(signal) < window_size:
+            signal = np.pad(signal, (0, window_size - len(signal)))
+        return signal
+
+    ecg = get_signal("ECG")
+    eda = get_signal("EDA")
+    emg = get_signal("EMG")
+    resp = get_signal("Resp")
+    temp = get_signal("Temp")
+
+    acc = np.array(chest.get("ACC", np.zeros((window_size, 3)))[start:end])
+    if acc.ndim == 2 and acc.shape[1] == 3:
+        acc_x, acc_y, acc_z = acc[:, 0], acc[:, 1], acc[:, 2]
+    else:
+        acc_x = acc_y = acc_z = np.zeros(window_size)
+
+    window_data = np.stack([ecg, eda, emg, resp, temp, acc_x, acc_y, acc_z], axis=-1)
+    segment = label_arr[start:end].astype(int)
+    mode_label = np.bincount(segment).argmax()
+    return window_data, mode_label
+
+
+def segment_data_raw(data_dict, window_size):
+    if "signal" not in data_dict or "label" not in data_dict:
+        return np.array([]), np.array([])
+
+    chest = data_dict["signal"]["chest"]
+    total_samples = len(chest["ECG"].flatten())
+    num_windows = total_samples // window_size
+    x_data, y_data = [], []
+
+    for idx in range(num_windows):
+        start = idx * window_size
+        end = start + window_size
+        window_data, label = get_window(chest, data_dict["label"], start, end, window_size)
+        x_data.append(window_data)
+        y_data.append(label)
+
+    return np.array(x_data), np.array(y_data)
+
+
+def filter_map_labels_binary(x_data, y_data):
+    valid = np.isin(y_data, list(LABEL_MAPPING.keys()))
+    x_data, y_data = x_data[valid], y_data[valid]
+    y_mapped = np.array([LABEL_MAPPING[val] for val in y_data], dtype=np.int64)
+    return x_data[: len(y_mapped)], y_mapped
+
+
+def load_subject_data(folder, window_size):
+    files = [name for name in os.listdir(folder) if name.endswith(".pkl")]
+    if not files:
+        return np.array([]), np.array([])
+
+    with open(os.path.join(folder, files[0]), "rb") as handle:
+        data = pickle.load(handle, encoding="latin1")
+    return segment_data_raw(data, window_size)
+
+
+def discover_subjects(dataset_dir):
+    return [
+        name
+        for name in sorted(os.listdir(dataset_dir))
+        if os.path.isdir(os.path.join(dataset_dir, name)) and name.startswith("S")
+    ]
+
+
+def load_data_per_subject(args):
+    subjects_data = {}
+    dataset_dir = os.path.abspath(args.dataset_dir)
+    if not os.path.exists(dataset_dir):
+        raise FileNotFoundError(f"Dataset directory not found: {dataset_dir}")
+
+    subject_ids = args.subjects or discover_subjects(dataset_dir)
+    for subject_id in subject_ids:
+        path = os.path.join(dataset_dir, subject_id)
+        if not os.path.isdir(path):
+            continue
+
+        print(f"Loading data for: {subject_id}")
+        x_sub, y_sub = load_subject_data(path, args.window_size)
+        if x_sub.size == 0:
+            continue
+
+        x_sub, y_sub = filter_map_labels_binary(x_sub, y_sub)
+        flat = x_sub.reshape(x_sub.shape[0], -1)
+        scaler = StandardScaler()
+        if len(flat) > args.calibration_windows:
+            scaler.fit(flat[: args.calibration_windows])
+        else:
+            scaler.fit(flat)
+
+        scaled = scaler.transform(flat).astype(np.float32)
+        x_sub_scaled = scaled.reshape(-1, args.window_size, args.num_channels)
+        subjects_data[subject_id] = {"X": x_sub_scaled, "y": y_sub}
+
+    return subjects_data
+
+
+def stack_subjects(subjects_data, subject_list):
+    x_list = [subjects_data[subj]["X"] for subj in subject_list]
+    y_list = [subjects_data[subj]["y"] for subj in subject_list]
+    return np.vstack(x_list), np.concatenate(y_list)
+
+
+def prepare_tensors(x_data, y_data):
+    x_tensor = torch.from_numpy(np.transpose(x_data, (0, 2, 1))).float()
+    y_tensor = torch.from_numpy(y_data.astype(np.float32))
+    return x_tensor, y_tensor
+
+
+def make_loader(x_data, y_data, batch_size, shuffle_data=False, num_workers=0):
+    x_tensor, y_tensor = prepare_tensors(x_data, y_data)
+    dataset = TensorDataset(x_tensor, y_tensor)
+    return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle_data, num_workers=num_workers)
+
+
+def get_loso_loaders(args, subjects_data=None):
+    if subjects_data is None:
+        subjects_data = load_data_per_subject(args)
+
+    subject_ids = list(subjects_data.keys())
+    if args.target_domain not in subject_ids:
+        raise ValueError(f"target_domain {args.target_domain} not found in loaded subjects: {subject_ids}")
+
+    train_subjects = [subject_id for subject_id in subject_ids if subject_id != args.target_domain]
+    x_train, y_train = stack_subjects(subjects_data, train_subjects)
+    x_test = subjects_data[args.target_domain]["X"]
+    y_test = subjects_data[args.target_domain]["y"]
+
+    source_loader = make_loader(x_train, y_train, args.batch_size, shuffle_data=True, num_workers=args.num_workers)
+    target_loader = make_loader(x_test, y_test, args.batch_size, shuffle_data=False, num_workers=args.num_workers)
+    return source_loader, target_loader, train_subjects
