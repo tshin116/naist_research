@@ -1,0 +1,66 @@
+# Python cache and local environments
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+.venv/
+venv/
+env/
+.env
+.env.*
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.vscode/
+.idea/
+*.code-profile
+.codex
+
+# Logs and scheduler outputs
+*.log
+*.out
+slurm-*.out
+
+# Large datasets and archives
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.rar
+self_learning_wesad/WESAD/
+pytorch-classification/data/
+wesad/data/
+wesad/dataset/
+
+# Model checkpoints and learned weights
+*.h5
+*.hdf5
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.pkl
+
+# Generated experiment outputs
+loso_results*.csv
+confusion_matrix*.png
+training_curves*.png
+runs/
+wandb/
+outputs/
+results/
+checkpoints/
+
+# Nested external repositories.
+# Keep their source files if needed, but do not track nested git metadata.
+OFTTA/.git/
+deep-residual-networks/.git/
+pytorch-classification/.git/
+tent/.git/
+wesad/.git/
