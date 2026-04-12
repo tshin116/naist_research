@@ -52,11 +52,23 @@ def binary_entropy_from_logits(logits):
 @torch.enable_grad()
 def forward_and_adapt(x, model, optimizer):
     """1 バッチに対して forward、エントロピー計算、BN パラメータ更新を行う。"""
+    model.train()
+
     outputs = model(x)
+
+    if isinstance(outputs, tuple):
+        outputs, _ = outputs
+
     loss = binary_entropy_from_logits(outputs).mean()
     loss.backward()
     optimizer.step()
     optimizer.zero_grad()
+
+    with torch.no_grad():
+        outputs = model(x)
+        if isinstance(outputs, tuple):
+            outputs, _ = outputs
+
     return outputs
 
 
