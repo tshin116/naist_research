@@ -1,0 +1,7 @@
+# SAR-style test-time adaptation 設定。
+adaption: sar
+tta_steps: 1
+tta_lr: 0.0001
+episodic: false
+sar_margin: 0.2772588722239781
+sar_reset_constant: 0.2

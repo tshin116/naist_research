@@ -1,0 +1,6 @@
+# T3A による classifier adjustment 設定。
+adaption: t3a
+tta_steps: 1
+tta_lr: 0.0001
+episodic: false
+filter_K: 16

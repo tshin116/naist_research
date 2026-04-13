@@ -1,0 +1,6 @@
+# SHOT-style test-time adaptation 設定。
+adaption: shot
+tta_steps: 1
+tta_lr: 0.0001
+episodic: false
+pseudo_threshold: 0.9

@@ -38,8 +38,30 @@ class StressCNN1D(nn.Module):
             nn.Linear(64, 1),
         )
 
-    def forward(self, x_input):
-        """Conv1d 特徴抽出器と分類器を通して logits を返す。"""
+    def forward_features(self, x_input):
+        """TTA 手法で使う 64 次元 feature を返す。
+
+        通常の forward と同じ畳み込み特徴を使い、最後の二値分類層の直前までを
+        feature として取り出す。既存 checkpoint と互換性を保つため、層の定義自体は
+        変更せず `classifier` 内のモジュールを再利用する。
+        """
         features = self.features(x_input)
-        logits = self.classifier(features).squeeze(-1)
+        features = self.classifier[0](features)
+        features = self.classifier[1](features)
+        features = self.classifier[2](features)
+        features = self.classifier[3](features)
+        features = self.classifier[4](features)
+        return features
+
+    def classify_features(self, features):
+        """64 次元 feature から single-logit を計算する。"""
+        features = self.classifier[5](features)
+        return self.classifier[6](features).squeeze(-1)
+
+    def forward(self, x_input, return_feature=False):
+        """Conv1d 特徴抽出器と分類器を通して logits を返す。"""
+        features = self.forward_features(x_input)
+        logits = self.classify_features(features)
+        if return_feature:
+            return logits, features
         return logits

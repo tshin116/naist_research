@@ -1,0 +1,8 @@
+# OFTTA による weighted BN + classifier adjustment 設定。
+adaption: oftta
+tta_steps: 1
+tta_lr: 0.0001
+episodic: false
+filter_K: 16
+oftta_prior_min: 0.1
+oftta_prior_max: 0.99

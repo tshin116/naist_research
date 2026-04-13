@@ -1,7 +1,7 @@
 # WESAD_TTA ディレクトリ構成ガイド
 
 このディレクトリは、WESAD データセットを用いたストレス二値分類について、1D-CNN の LOSO
-評価と Tent による Test-Time Adaptation を実行するための実験コードをまとめたものです。
+評価と Test-Time Adaptation を実行するための実験コードをまとめたものです。
 
 元の `self_learning_wesad/stress_detection_1d_cnn_loso_pytorch.py` は、前処理、モデル定義、
 学習、評価、設定値、保存処理が 1 ファイルに集約されていました。`WESAD_TTA` では OFTTA の構成を
@@ -18,7 +18,7 @@
 4. 被験者ごとに標準化し、Conv1d 用のテンソル形状へ変換する
 5. `models` の 1D-CNN を使って外側 LOSO と内側 LOSO を実行する
 6. 学習済みモデルを `ckpt` に保存する
-7. `adapt.py` で source 評価、または Tent によるテスト時適応評価を実行する
+7. `adapt.py` で source 評価、または各 TTA 手法によるテスト時適応評価を実行する
 8. 結果と実行時設定を `logs` に保存する
 
 前処理済みデータが `data/wesad/processed/` に存在する場合は、raw `.pkl` からの窓分割をやり直さず、
@@ -45,6 +45,10 @@ YAML として分離しています。
 - `cfg/algorithm/tent.yaml`
   Tent 適応に使う設定です。Tent の学習率、1 バッチあたりの更新回数、episodic adaptation の有無を定義します。
 
+- `cfg/algorithm/*.yaml`
+  `norm`, `pl`, `shot`, `sar`, `t3a`, `tast`, `tast_bn`, `oftta` など、各 TTA 手法の設定です。
+  OFTTA 由来の多クラス・2D-CNN 前提の設定を、WESAD の二値分類・1D-CNN 用に分けています。
+
 ### `data_processing/`
 
 WESAD の読み込みと前処理を担当します。
@@ -62,6 +66,8 @@ WESAD の読み込みと前処理を担当します。
 - `models/cnn1d.py`
   WESAD 用の 1D-CNN を定義します。入力は 8 チャンネルの胸部センサ時系列で、出力は二値分類用の
   1 次元 logits です。損失関数には `BCEWithLogitsLoss` を使う前提です。
+  T3A/OFTTA/TAST 系の手法が feature を使えるよう、最後の線形分類層の直前の 64 次元 feature も
+  取り出せるようにしています。
 
 ### `TTA/`
 
@@ -74,6 +80,12 @@ Test-Time Adaptation の設定とアルゴリズム実装を置くディレク�
   WESAD の 1D-CNN 向け Tent 実装です。元の Tent 実装は `BatchNorm2d` と多クラス softmax を想定することが多いですが、
   ここでは `BatchNorm1d` と二値 logits に合わせています。テストバッチごとに予測エントロピーを最小化し、
   BatchNorm の scale と bias だけを更新します。
+
+- `TTA/adapt_algorithm/*.py`
+  OFTTA ディレクトリにある TTA 手法を、WESAD の 1D-CNN と single-logit 二値分類に合わせて移植した実装です。
+  追加済みの手法は `norm`, `pl`, `shot`, `sar`, `t3a`, `tast`, `tast_bn`, `oftta` です。
+  `BatchNorm2d` 前提の処理は `BatchNorm1d` に変更し、多クラス softmax 前提の entropy や pseudo-label 処理は
+  single-logit から 2 クラス logits を作って扱う形に変更しています。
 
 ### `scripts/`
 
@@ -90,6 +102,9 @@ Test-Time Adaptation の設定とアルゴリズム実装を置くディレク�
 
 - `scripts/wesad/adapt_tent_wesad.sh`
   各被験者をターゲットにして、Tent によるテスト時適応評価を実行します。
+
+- `scripts/wesad/adapt_*_wesad.sh`
+  各 TTA 手法を全被験者に対して実行するスクリプトです。`adapt.sh` は source と全 TTA 手法を順に呼び出します。
 
 ### `ckpt/`
 
@@ -198,8 +213,12 @@ conda run -n wesad_env bash adapt.sh
 conda run -n wesad_env python adapt.py \
   --target_domain S2 \
   --dataset_cfg ./cfg/dataset/wesad.yaml \
-  --algorithm_cfg ./cfg/algorithm/tent.yaml
+  --algorithm_cfg ./cfg/algorithm/oftta.yaml
 ```
+
+`--algorithm_cfg` を `tent.yaml`, `norm.yaml`, `pl.yaml`, `shot.yaml`, `sar.yaml`,
+`t3a.yaml`, `tast.yaml`, `tast_bn.yaml`, `oftta.yaml` に変えることで、同じ checkpoint に対して
+各 TTA 手法を評価できます。
 
 ## 注意点
 
