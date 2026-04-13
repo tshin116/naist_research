@@ -42,6 +42,10 @@ YAML として分離しています。
 - `cfg/algorithm/source.yaml`
   1D-CNN の通常学習と source 評価に使う設定です。最大 epoch 数、学習率、early stopping の patience などを定義します。
 
+- `cfg/algorithm/source_fixed.yaml`
+  内側 LOSO を使わず、固定 epoch で source model を学習する設定です。既存の nested LOSO checkpoint を
+  上書きしないよう、デフォルト保存先は `./ckpt_fixed` です。
+
 - `cfg/algorithm/tent.yaml`
   Tent 適応に使う設定です。Tent の学習率、1 バッチあたりの更新回数、episodic adaptation の有無を定義します。
 
@@ -96,6 +100,9 @@ Test-Time Adaptation の設定とアルゴリズム実装を置くディレク�
 
 - `scripts/wesad/train_loso_wesad.sh`
   WESAD の LOSO 学習を実行します。
+
+- `scripts/wesad/train_fixed_loso_wesad.sh`
+  検証ユーザを置かず、固定 epoch で外側 LOSO 学習を実行します。
 
 - `scripts/wesad/adapt_source_wesad.sh`
   各被験者をターゲットにして、適応なしの source 評価を実行します。
@@ -153,6 +160,10 @@ data/
   1D-CNN の LOSO 学習を行うメインプログラムです。外側 LOSO でテスト被験者を 1 名ずつ固定し、
   残りの被験者で内側 LOSO を回して最終学習 epoch 数を決定します。
 
+- `train_fixed_loso.py`
+  内側 LOSO を行わず、外側 LOSO の train subjects 全体で固定 epoch 学習するメインプログラムです。
+  epoch 数が小さく選ばれすぎる影響を検証するために使います。
+
 - `adapt.py`
   学習済みチェックポイントを読み込み、source 評価または Tent 評価を実行するメインプログラムです。
   評価時には target 被験者だけを読み込みます。たとえば `target_domain=S2` の場合、
@@ -185,6 +196,26 @@ conda run -n wesad_env bash train.sh
 
 ```bash
 conda run -n wesad_env python train.py \
+  --dataset_cfg ./cfg/dataset/wesad.yaml \
+  --algorithm_cfg ./cfg/algorithm/source.yaml
+```
+
+### 固定 epoch の LOSO 学習
+
+内側 LOSO による epoch 選択を行わず、`source_fixed.yaml` の `max_epochs` で固定学習します。
+
+```bash
+cd /work/shinsaku-t/naist_reserch/WESAD_TTA
+conda run -n wesad_env bash scripts/wesad/train_fixed_loso_wesad.sh
+```
+
+保存先はデフォルトで `ckpt_fixed/` です。固定 epoch 版 checkpoint を使って評価する場合は、
+`adapt.py` に `--resume ./ckpt_fixed` を渡します。
+
+```bash
+conda run -n wesad_env python adapt.py \
+  --target_domain S2 \
+  --resume ./ckpt_fixed \
   --dataset_cfg ./cfg/dataset/wesad.yaml \
   --algorithm_cfg ./cfg/algorithm/source.yaml
 ```

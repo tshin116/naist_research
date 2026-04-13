@@ -1,0 +1,6 @@
+# 検証用ユーザを使わず、固定 epoch で source model を学習する設定。
+adaption: source
+max_epochs: 20
+learning_rate: 0.0005
+save_model: true
+resume: ./ckpt_fixed
