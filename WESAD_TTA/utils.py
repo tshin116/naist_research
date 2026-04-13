@@ -48,3 +48,10 @@ def get_dataset(args, subjects_data=None):
     if args.dataset == "wesad":
         return wesad.get_loso_loaders(args, subjects_data=subjects_data)
     raise ValueError(f"Unknown dataset: {args.dataset}")
+
+
+def get_target_dataset(args):
+    """評価専用に target 被験者だけの DataLoader を作成する。"""
+    if args.dataset == "wesad":
+        return wesad.get_target_loader(args)
+    raise ValueError(f"Unknown dataset: {args.dataset}")

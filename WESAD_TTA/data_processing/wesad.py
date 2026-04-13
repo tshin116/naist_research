@@ -91,6 +91,92 @@ def load_subject_data(folder, window_size):
     return segment_data_raw(data, window_size)
 
 
+def processed_subject_path(args, subject_id):
+    """前処理済み `.npz` の保存パスを返す。
+
+    窓長、チャンネル数、標準化に使う calibration 窓数をファイル名に含めることで、
+    設定を変えたときに古いキャッシュと混ざりにくくしている。
+    """
+    filename = (
+        f"{subject_id}_ws{args.window_size}_"
+        f"ch{args.num_channels}_cal{args.calibration_windows}.npz"
+    )
+    return os.path.join(os.path.abspath(args.processed_dir), filename)
+
+
+def save_processed_subject(args, subject_id, x_data, y_data):
+    """被験者 1 名分の前処理済み X/y を `.npz` として保存する。"""
+    save_path = processed_subject_path(args, subject_id)
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    np.savez_compressed(
+        save_path,
+        X=x_data.astype(np.float32),
+        y=y_data.astype(np.int64),
+        subject_id=subject_id,
+        window_size=args.window_size,
+        num_channels=args.num_channels,
+        calibration_windows=args.calibration_windows,
+    )
+    return save_path
+
+
+def load_processed_subject(args, subject_id):
+    """前処理済み `.npz` から被験者 1 名分の X/y を読み込む。"""
+    load_path = processed_subject_path(args, subject_id)
+    if not os.path.exists(load_path):
+        return None
+
+    with np.load(load_path, allow_pickle=False) as data:
+        x_data = data["X"].astype(np.float32)
+        y_data = data["y"].astype(np.int64)
+    return {"X": x_data, "y": y_data}
+
+
+def preprocess_subject(args, subject_id):
+    """元の WESAD `.pkl` から被験者 1 名分を前処理する。
+
+    この関数は cache を読まず、必ず raw data から窓分割、二値ラベル化、
+    被験者内標準化までを実行する。
+    """
+    dataset_dir = os.path.abspath(args.dataset_dir)
+    path = os.path.join(dataset_dir, subject_id)
+    if not os.path.isdir(path):
+        raise FileNotFoundError(f"Subject folder not found: {path}")
+
+    x_sub, y_sub = load_subject_data(path, args.window_size)
+    if x_sub.size == 0:
+        raise ValueError(f"No WESAD windows were loaded for subject: {subject_id}")
+
+    x_sub, y_sub = filter_map_labels_binary(x_sub, y_sub)
+    # StandardScaler は 2 次元入力を受け取るため、窓とチャンネルを一度 flatten する。
+    flat = x_sub.reshape(x_sub.shape[0], -1)
+    scaler = StandardScaler()
+    if len(flat) > args.calibration_windows:
+        scaler.fit(flat[: args.calibration_windows])
+    else:
+        scaler.fit(flat)
+
+    scaled = scaler.transform(flat).astype(np.float32)
+    x_sub_scaled = scaled.reshape(-1, args.window_size, args.num_channels)
+    return {"X": x_sub_scaled, "y": y_sub}
+
+
+def load_or_preprocess_subject(args, subject_id):
+    """前処理済みデータがあれば読み込み、なければ raw data から作って保存する。"""
+    if getattr(args, "use_processed", True):
+        cached = load_processed_subject(args, subject_id)
+        if cached is not None:
+            print(f"Loading processed data for: {subject_id}")
+            return cached
+
+    print(f"Preprocessing raw data for: {subject_id}")
+    subject_data = preprocess_subject(args, subject_id)
+    if getattr(args, "use_processed", True):
+        save_path = save_processed_subject(args, subject_id, subject_data["X"], subject_data["y"])
+        print(f"Processed data saved to: {save_path}")
+    return subject_data
+
+
 def discover_subjects(dataset_dir):
     """データセットディレクトリから `S2` のような被験者フォルダを列挙する。"""
     return [
@@ -113,27 +199,7 @@ def load_data_per_subject(args):
 
     subject_ids = args.subjects or discover_subjects(dataset_dir)
     for subject_id in subject_ids:
-        path = os.path.join(dataset_dir, subject_id)
-        if not os.path.isdir(path):
-            continue
-
-        print(f"Loading data for: {subject_id}")
-        x_sub, y_sub = load_subject_data(path, args.window_size)
-        if x_sub.size == 0:
-            continue
-
-        x_sub, y_sub = filter_map_labels_binary(x_sub, y_sub)
-        # StandardScaler は 2 次元入力を受け取るため、窓とチャンネルを一度 flatten する。
-        flat = x_sub.reshape(x_sub.shape[0], -1)
-        scaler = StandardScaler()
-        if len(flat) > args.calibration_windows:
-            scaler.fit(flat[: args.calibration_windows])
-        else:
-            scaler.fit(flat)
-
-        scaled = scaler.transform(flat).astype(np.float32)
-        x_sub_scaled = scaled.reshape(-1, args.window_size, args.num_channels)
-        subjects_data[subject_id] = {"X": x_sub_scaled, "y": y_sub}
+        subjects_data[subject_id] = load_or_preprocess_subject(args, subject_id)
 
     return subjects_data
 
@@ -184,3 +250,37 @@ def get_loso_loaders(args, subjects_data=None):
     source_loader = make_loader(x_train, y_train, args.batch_size, shuffle_data=True, num_workers=args.num_workers)
     target_loader = make_loader(x_test, y_test, args.batch_size, shuffle_data=False, num_workers=args.num_workers)
     return source_loader, target_loader, train_subjects
+
+
+def get_target_loader(args):
+    """評価専用 loader を作成する。
+
+    学習では target 以外の被験者が必要だが、評価では target 被験者だけで十分。
+    `adapt.py` ではこの関数を使うことで、S2 評価時に S2 以外のデータを読まない。
+    """
+    subject_data = load_or_preprocess_subject(args, args.target_domain)
+    target_loader = make_loader(
+        subject_data["X"],
+        subject_data["y"],
+        args.batch_size,
+        shuffle_data=False,
+        num_workers=args.num_workers,
+    )
+    return target_loader
+
+
+def preprocess_all_subjects(args):
+    """全被験者の前処理済み `.npz` を作成する。"""
+    dataset_dir = os.path.abspath(args.dataset_dir)
+    if not os.path.exists(dataset_dir):
+        raise FileNotFoundError(f"Dataset directory not found: {dataset_dir}")
+
+    subject_ids = args.subjects or discover_subjects(dataset_dir)
+    saved_paths = []
+    for subject_id in subject_ids:
+        print(f"Preprocessing raw data for: {subject_id}")
+        subject_data = preprocess_subject(args, subject_id)
+        save_path = save_processed_subject(args, subject_id, subject_data["X"], subject_data["y"])
+        saved_paths.append(save_path)
+        print(f"Processed data saved to: {save_path}")
+    return saved_paths

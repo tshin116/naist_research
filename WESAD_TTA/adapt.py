@@ -16,7 +16,7 @@ import yaml
 from config import parse_args
 from metrics import evaluate_model, format_confusion_matrix
 from TTA.setup import get_adaptation
-from utils import get_dataset, get_device, get_model, set_seed
+from utils import get_device, get_model, get_target_dataset, set_seed
 
 
 def checkpoint_path(args):
@@ -47,7 +47,7 @@ def main():
     device = get_device(args.device)
     out_dir = make_output_dir(args)
 
-    _, target_loader, train_subjects = get_dataset(args)
+    target_loader = get_target_dataset(args)
     base_model = get_model(args).to(device)
     ckpt_path = checkpoint_path(args)
     if not os.path.exists(ckpt_path):
@@ -55,14 +55,19 @@ def main():
 
     checkpoint = torch.load(ckpt_path, map_location=device, weights_only=False)
     base_model.load_state_dict(checkpoint["model_state_dict"], strict=True)
+    train_subjects = checkpoint.get("train_subjects", [])
 
     criterion = nn.BCEWithLogitsLoss()
     # source_metrics は、Tent を適用する前の通常推論の基準値として残す。
     source_metrics = evaluate_model(base_model, target_loader, device, criterion=criterion)
 
-    model = get_adaptation(args, base_model)
-    # Tent の場合は forward 内で backward が走るため、adapt=True で勾配計算を有効にする。
-    adapt_metrics = evaluate_model(model, target_loader, device, criterion=criterion, adapt=args.adaption != "source")
+    if args.adaption == "source":
+        # source 評価では適応後評価は同じ結果になるため、二重推論を避ける。
+        adapt_metrics = source_metrics
+    else:
+        model = get_adaptation(args, base_model)
+        # Tent の場合は forward 内で backward が走るため、adapt=True で勾配計算を有効にする。
+        adapt_metrics = evaluate_model(model, target_loader, device, criterion=criterion, adapt=True)
 
     record = {
         "target_domain": args.target_domain,
@@ -78,16 +83,24 @@ def main():
         "adapt_mean_f1": adapt_metrics["mean_f1"],
     }
 
-    print(
-        f"Source Accuracy: {source_metrics['accuracy']:.4f}, "
-        f"Source Mean F1: {source_metrics['mean_f1']:.4f}, "
-        f"Adapt Accuracy: {adapt_metrics['accuracy']:.4f}, "
-        f"Adapt Mean F1: {adapt_metrics['mean_f1']:.4f}"
-    )
-    print("Source")
-    print(format_confusion_matrix(source_metrics["confusion_matrix"]))
-    print("Adapt")
-    print(format_confusion_matrix(adapt_metrics["confusion_matrix"]))
+    if args.adaption == "source":
+        print(
+            f"Source Accuracy: {source_metrics['accuracy']:.4f}, "
+            f"Source Mean F1: {source_metrics['mean_f1']:.4f}"
+        )
+        print("Source")
+        print(format_confusion_matrix(source_metrics["confusion_matrix"]))
+    else:
+        print(
+            f"Source Accuracy: {source_metrics['accuracy']:.4f}, "
+            f"Source Mean F1: {source_metrics['mean_f1']:.4f}, "
+            f"Adapt Accuracy: {adapt_metrics['accuracy']:.4f}, "
+            f"Adapt Mean F1: {adapt_metrics['mean_f1']:.4f}"
+        )
+        print("Source")
+        print(format_confusion_matrix(source_metrics["confusion_matrix"]))
+        print("Adapt")
+        print(format_confusion_matrix(adapt_metrics["confusion_matrix"]))
 
     with open(os.path.join(out_dir, "log.txt"), "w", encoding="utf-8") as handle:
         for key, value in record.items():

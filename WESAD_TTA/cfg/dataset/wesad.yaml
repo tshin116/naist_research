@@ -1,6 +1,8 @@
 # WESAD データセット固有の設定。
 dataset: wesad
 dataset_dir: ../self_learning_wesad/WESAD
+processed_dir: ./data/wesad/processed
+use_processed: true
 subjects: null
 window_seconds: 5
 sampling_rate: 700

@@ -51,6 +51,9 @@ wesad/dataset/
 loso_results*.csv
 confusion_matrix*.png
 training_curves*.png
+WESAD_TTA/data/wesad/processed/
+WESAD_TTA/logs/**
+!WESAD_TTA/logs/.gitkeep
 runs/
 wandb/
 outputs/
