@@ -1,0 +1,11 @@
+target_domain: S8
+train_subjects: ['S10', 'S11', 'S13', 'S14', 'S15', 'S16', 'S17', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7', 'S9']
+adaption: source
+source_accuracy: 0.946843853820598
+source_f1_non_stress: 0.9646017699115044
+source_f1_stress: 0.8933333333333333
+source_mean_f1: 0.9289675516224188
+adapt_accuracy: 0.946843853820598
+adapt_f1_non_stress: 0.9646017699115044
+adapt_f1_stress: 0.8933333333333333
+adapt_mean_f1: 0.9289675516224188

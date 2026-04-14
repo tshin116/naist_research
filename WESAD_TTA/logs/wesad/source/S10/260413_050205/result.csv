@@ -1,0 +1,2 @@
+target_domain,train_subjects,adaption,source_accuracy,source_f1_non_stress,source_f1_stress,source_mean_f1,adapt_accuracy,adapt_f1_non_stress,adapt_f1_stress,adapt_mean_f1
+S10,"['S11', 'S13', 'S14', 'S15', 'S16', 'S17', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7', 'S8', 'S9']",source,0.762987012987013,0.8655616942909761,0.0,0.43278084714548803,0.762987012987013,0.8655616942909761,0.0,0.43278084714548803

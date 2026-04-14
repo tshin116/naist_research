@@ -27,6 +27,7 @@ PyTorch では Conv1d の入力形状が (batch, channels, time) なので、
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DATASET_DIR = os.path.join(SCRIPT_DIR, "WESAD")
+CHECKPOINT_DIR = os.path.join(SCRIPT_DIR, "checkpoints")
 
 WINDOW_SECONDS = 5
 FS = 700
@@ -341,6 +342,39 @@ def format_confusion_matrix(conf_matrix):
     )
 
 
+def save_loso_checkpoint(model, test_subject, train_subjects, selected_epochs, test_metrics, inner_summary):
+    """
+    外側 LOSO の各 fold で得られた最終モデルを保存する。
+
+    state_dict に加えて、あとで解析しやすいように被験者IDや評価指標も一緒に保存する。
+    """
+    os.makedirs(CHECKPOINT_DIR, exist_ok=True)
+    save_path = os.path.join(CHECKPOINT_DIR, f"loso_test_{test_subject}.pt")
+
+    torch.save(
+        {
+            "model_state_dict": model.state_dict(),
+            "test_subject": test_subject,
+            "train_subjects": train_subjects,
+            "selected_epochs": selected_epochs,
+            "window_seconds": WINDOW_SECONDS,
+            "sampling_rate": FS,
+            "window_size": WINDOW_SIZE,
+            "num_channels": NUM_CHANNELS,
+            "metrics": {
+                "accuracy": test_metrics["accuracy"],
+                "f1_non_stress": test_metrics["f1_non_stress"],
+                "f1_stress": test_metrics["f1_stress"],
+                "mean_f1": test_metrics["mean_f1"],
+                "confusion_matrix": test_metrics["confusion_matrix"],
+            },
+            "inner_cv_summary": inner_summary,
+        },
+        save_path,
+    )
+    return save_path
+
+
 def fit_model(model, train_loader, val_loader, epochs, device, pos_weight=None, patience=None):
     """
     学習ループ本体。
@@ -619,6 +653,16 @@ if __name__ == "__main__":
         )
         print(format_confusion_matrix(test_metrics["confusion_matrix"]))
 
+        checkpoint_path = save_loso_checkpoint(
+            model=model,
+            test_subject=test_subj,
+            train_subjects=available_train_subjs,
+            selected_epochs=selected_epochs,
+            test_metrics=test_metrics,
+            inner_summary=inner_summary,
+        )
+        print(f"Checkpoint saved to {checkpoint_path}")
+
         loso_results.append(
             {
                 "subject": test_subj,
@@ -633,6 +677,7 @@ if __name__ == "__main__":
                 "inner_cv_avg_val_f1_non_stress": inner_summary["avg_val_f1_non_stress"],
                 "inner_cv_avg_val_f1_stress": inner_summary["avg_val_f1_stress"],
                 "inner_cv_avg_val_mean_f1": inner_summary["avg_val_mean_f1"],
+                "checkpoint_path": checkpoint_path,
                 "report": report,
                 "inner_cv_summary": inner_summary,
                 "history": history,
