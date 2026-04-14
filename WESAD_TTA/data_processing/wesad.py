@@ -259,11 +259,12 @@ def get_target_loader(args):
     `adapt.py` ではこの関数を使うことで、S2 評価時に S2 以外のデータを読まない。
     """
     subject_data = load_or_preprocess_subject(args, args.target_domain)
+    target_shuffle = getattr(args, "target_shuffle", False)
     target_loader = make_loader(
         subject_data["X"],
         subject_data["y"],
         args.batch_size,
-        shuffle_data=False,
+        shuffle_data=target_shuffle,
         num_workers=args.num_workers,
     )
     return target_loader

@@ -33,7 +33,6 @@ slurm-*.out
 *.tar.gz
 *.tgz
 *.rar
-self_learning_wesad/WESAD/
 pytorch-classification/data/
 wesad/data/
 wesad/dataset/
@@ -45,15 +44,11 @@ wesad/dataset/
 *.pth
 *.ckpt
 *.onnx
-*.pkl
 
 # Generated experiment outputs
 loso_results*.csv
 confusion_matrix*.png
 training_curves*.png
-WESAD_TTA/data/wesad/processed/
-WESAD_TTA/logs/**
-!WESAD_TTA/logs/.gitkeep
 runs/
 wandb/
 outputs/

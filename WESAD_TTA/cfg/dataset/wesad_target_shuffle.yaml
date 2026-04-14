@@ -1,4 +1,5 @@
-# WESAD データセット固有の設定。
+# WESAD 評価時の target loader だけを shuffle する設定。
+# Tent/OFTTA の batch composition 影響を調べるために使う。
 dataset: wesad
 dataset_dir: ../self_learning_wesad/WESAD
 processed_dir: ./data/wesad/processed
@@ -12,4 +13,4 @@ num_classes: 2
 calibration_windows: 60
 batch_size: 64
 num_workers: 0
-target_shuffle: false
+target_shuffle: true

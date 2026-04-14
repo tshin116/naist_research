@@ -39,6 +39,10 @@ YAML として分離しています。
   デフォルトでは raw data として `../self_learning_wesad/WESAD` を参照し、前処理済みデータは
   `./data/wesad/processed` に保存します。
 
+- `cfg/dataset/wesad_target_shuffle.yaml`
+  評価時の target loader だけを shuffle する設定です。Tent/OFTTA の batch composition 依存を調べるために使います。
+  元の Tent 実装に合わせて `episodic=false` は変えず、batch の順序だけを変更します。
+
 - `cfg/algorithm/source.yaml`
   1D-CNN の通常学習と source 評価に使う設定です。最大 epoch 数、学習率、early stopping の patience などを定義します。
 
@@ -112,6 +116,12 @@ Test-Time Adaptation の設定とアルゴリズム実装を置くディレク�
 
 - `scripts/wesad/adapt_*_wesad.sh`
   各 TTA 手法を全被験者に対して実行するスクリプトです。`adapt.sh` は source と全 TTA 手法を順に呼び出します。
+
+- `scripts/wesad/compare_source_tent_oftta_shuffle_wesad.sh`
+  target loader を shuffle して、Source、Tent、OFTTA の比較表とグラフを作成します。
+
+- `scripts/wesad/compare_source_tent_oftta_fixed_shuffle_wesad.sh`
+  固定 epoch checkpoint `./ckpt_fixed` を使い、target loader を shuffle して比較表とグラフを作成します。
 
 ### `ckpt/`
 
@@ -250,6 +260,22 @@ conda run -n wesad_env python adapt.py \
 `--algorithm_cfg` を `tent.yaml`, `norm.yaml`, `pl.yaml`, `shot.yaml`, `sar.yaml`,
 `t3a.yaml`, `tast.yaml`, `tast_bn.yaml`, `oftta.yaml` に変えることで、同じ checkpoint に対して
 各 TTA 手法を評価できます。
+
+### target loader を shuffle した比較
+
+通常の `wesad.yaml` では target window を時系列順に batch 化します。先頭の安静時 window が Tent/OFTTA に
+与える影響を調べる場合は、target loader だけを shuffle する設定を使います。
+
+```bash
+cd /work/shinsaku-t/naist_reserch/WESAD_TTA
+conda run -n wesad_env bash scripts/wesad/compare_source_tent_oftta_shuffle_wesad.sh
+```
+
+固定 epoch checkpoint を使う場合はこちらです。
+
+```bash
+conda run -n wesad_env bash scripts/wesad/compare_source_tent_oftta_fixed_shuffle_wesad.sh
+```
 
 ## 注意点
 
