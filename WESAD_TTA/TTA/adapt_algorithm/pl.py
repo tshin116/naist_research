@@ -23,6 +23,7 @@ class PL(nn.Module):
         self.steps = steps
         self.episodic = episodic
         self.threshold = getattr(args, "pseudo_threshold", 0.9)
+        self.label_mode = getattr(args, "label_mode", "binary")
         self.model_state, self.optimizer_state = copy_model_and_optimizer(self.model, self.optimizer)
 
     def forward(self, x):
@@ -30,7 +31,7 @@ class PL(nn.Module):
             self.reset()
         outputs = None
         for _ in range(self.steps):
-            outputs = forward_and_adapt(x, self.model, self.optimizer, self.threshold)
+            outputs = forward_and_adapt(x, self.model, self.optimizer, self.threshold, self.label_mode)
         return outputs
 
     def reset(self):
@@ -38,11 +39,11 @@ class PL(nn.Module):
 
 
 @torch.enable_grad()
-def forward_and_adapt(x, model, optimizer, threshold):
+def forward_and_adapt(x, model, optimizer, threshold, label_mode):
     """1 バッチで pseudo-label loss を最小化する。"""
     model.train()
     logits = model(x)
-    loss = pseudo_label_loss(logits, confidence_threshold=threshold)
+    loss = pseudo_label_loss(logits, confidence_threshold=threshold, label_mode=label_mode)
     loss.backward()
     optimizer.step()
     optimizer.zero_grad()

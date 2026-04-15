@@ -10,11 +10,10 @@ from datetime import datetime
 
 import pandas as pd
 import torch
-import torch.nn as nn
 import yaml
 
 from config import parse_args
-from metrics import evaluate_model, format_confusion_matrix
+from metrics import CLASS_NAMES, evaluate_model, format_confusion_matrix, make_criterion, move_criterion_to_device
 from TTA.setup import get_adaptation
 from utils import get_device, get_model, get_target_dataset, set_seed
 
@@ -57,9 +56,15 @@ def main():
     base_model.load_state_dict(checkpoint["model_state_dict"], strict=True)
     train_subjects = checkpoint.get("train_subjects", [])
 
-    criterion = nn.BCEWithLogitsLoss()
+    criterion = move_criterion_to_device(make_criterion(args), device)
     # source_metrics は、Tent を適用する前の通常推論の基準値として残す。
-    source_metrics = evaluate_model(base_model, target_loader, device, criterion=criterion)
+    source_metrics = evaluate_model(
+        base_model,
+        target_loader,
+        device,
+        criterion=criterion,
+        num_classes=getattr(args, "num_classes", None),
+    )
 
     if args.adaption == "source":
         # source 評価では適応後評価は同じ結果になるため、二重推論を避ける。
@@ -67,7 +72,14 @@ def main():
     else:
         model = get_adaptation(args, base_model)
         # Tent の場合は forward 内で backward が走るため、adapt=True で勾配計算を有効にする。
-        adapt_metrics = evaluate_model(model, target_loader, device, criterion=criterion, adapt=True)
+        adapt_metrics = evaluate_model(
+            model,
+            target_loader,
+            device,
+            criterion=criterion,
+            adapt=True,
+            num_classes=getattr(args, "num_classes", None),
+        )
 
     record = {
         "target_domain": args.target_domain,
@@ -76,12 +88,15 @@ def main():
         "source_accuracy": source_metrics["accuracy"],
         "source_f1_non_stress": source_metrics["f1_non_stress"],
         "source_f1_stress": source_metrics["f1_stress"],
+        "source_f1_per_class": source_metrics["f1_per_class"].tolist(),
         "source_mean_f1": source_metrics["mean_f1"],
         "adapt_accuracy": adapt_metrics["accuracy"],
         "adapt_f1_non_stress": adapt_metrics["f1_non_stress"],
         "adapt_f1_stress": adapt_metrics["f1_stress"],
+        "adapt_f1_per_class": adapt_metrics["f1_per_class"].tolist(),
         "adapt_mean_f1": adapt_metrics["mean_f1"],
     }
+    class_names = CLASS_NAMES.get(getattr(args, "label_mode", "binary"))
 
     if args.adaption == "source":
         print(
@@ -89,7 +104,7 @@ def main():
             f"Source Mean F1: {source_metrics['mean_f1']:.4f}"
         )
         print("Source")
-        print(format_confusion_matrix(source_metrics["confusion_matrix"]))
+        print(format_confusion_matrix(source_metrics["confusion_matrix"], class_names=class_names))
     else:
         print(
             f"Source Accuracy: {source_metrics['accuracy']:.4f}, "
@@ -98,9 +113,9 @@ def main():
             f"Adapt Mean F1: {adapt_metrics['mean_f1']:.4f}"
         )
         print("Source")
-        print(format_confusion_matrix(source_metrics["confusion_matrix"]))
+        print(format_confusion_matrix(source_metrics["confusion_matrix"], class_names=class_names))
         print("Adapt")
-        print(format_confusion_matrix(adapt_metrics["confusion_matrix"]))
+        print(format_confusion_matrix(adapt_metrics["confusion_matrix"], class_names=class_names))
 
     with open(os.path.join(out_dir, "log.txt"), "w", encoding="utf-8") as handle:
         for key, value in record.items():

@@ -19,12 +19,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import torch
-import torch.nn as nn
 import yaml
 
 from config import load_yaml
 from data_processing.wesad import discover_subjects
-from metrics import evaluate_model
+from metrics import evaluate_model, make_criterion, move_criterion_to_device
 from TTA.setup import get_adaptation
 from utils import get_device, get_model, get_target_dataset, set_seed
 
@@ -86,14 +85,28 @@ def evaluate_method(args, target_loader, device, criterion):
     """1 手法を評価し、表に入れる指標だけを返す。"""
     model = load_checkpoint_model(args, device)
     if args.adaption == "source":
-        metrics = evaluate_model(model, target_loader, device, criterion=criterion)
+        metrics = evaluate_model(
+            model,
+            target_loader,
+            device,
+            criterion=criterion,
+            num_classes=getattr(args, "num_classes", None),
+        )
     else:
         adapted_model = get_adaptation(args, model)
-        metrics = evaluate_model(adapted_model, target_loader, device, criterion=criterion, adapt=True)
+        metrics = evaluate_model(
+            adapted_model,
+            target_loader,
+            device,
+            criterion=criterion,
+            adapt=True,
+            num_classes=getattr(args, "num_classes", None),
+        )
     return {
         "accuracy": metrics["accuracy"],
         "f1_non_stress": metrics["f1_non_stress"],
         "f1_stress": metrics["f1_stress"],
+        "f1_class_2": metrics.get("f1_class_2", None),
         "mean_f1": metrics["mean_f1"],
     }
 
@@ -202,7 +215,7 @@ def main():
     base_args = build_args(cli_args, "source", "S2")
     set_seed(base_args.seed)
     device = get_device(base_args.device)
-    criterion = nn.BCEWithLogitsLoss()
+    criterion = move_criterion_to_device(make_criterion(base_args), device)
     subjects = resolve_subjects(cli_args)
     out_dir = make_output_dir(base_args)
 
@@ -220,11 +233,14 @@ def main():
             row[f"{prefix}_Acc"] = metrics["accuracy"]
             row[f"{prefix}_F1_0"] = metrics["f1_non_stress"]
             row[f"{prefix}_F1_1"] = metrics["f1_stress"]
+            if metrics["f1_class_2"] is not None:
+                row[f"{prefix}_F1_2"] = metrics["f1_class_2"]
             row[f"{prefix}_MeanF1"] = metrics["mean_f1"]
             print(
                 f"  {prefix}: Acc={metrics['accuracy']:.4f}, "
                 f"F1(0)={metrics['f1_non_stress']:.4f}, "
                 f"F1(1)={metrics['f1_stress']:.4f}, "
+                f"F1(2)={(metrics['f1_class_2'] or 0.0):.4f}, "
                 f"MeanF1={metrics['mean_f1']:.4f}"
             )
         rows.append(row)

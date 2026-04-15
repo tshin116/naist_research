@@ -7,10 +7,10 @@ import torch
 import torch.nn as nn
 
 from TTA.adapt_algorithm.common import (
-    binary_entropy_from_logits,
     collect_bn1d_params,
     configure_bn1d_for_adaptation,
     copy_model_and_optimizer,
+    entropy_from_logits,
     load_model_and_optimizer,
     safe_mean_loss,
 )
@@ -34,6 +34,7 @@ class SAR(nn.Module):
         self.episodic = episodic
         self.margin_e0 = getattr(args, "sar_margin", 0.4 * math.log(getattr(args, "num_classes", 2)))
         self.reset_constant_em = getattr(args, "sar_reset_constant", 0.2)
+        self.label_mode = getattr(args, "label_mode", "binary")
         self.ema = None
         self.model_state, self.optimizer_state = copy_model_and_optimizer(self.model, self.optimizer)
 
@@ -43,7 +44,13 @@ class SAR(nn.Module):
         outputs = None
         for _ in range(self.steps):
             outputs, self.ema, reset_flag = forward_and_adapt_sar(
-                x, self.model, self.optimizer, self.margin_e0, self.reset_constant_em, self.ema
+                x,
+                self.model,
+                self.optimizer,
+                self.margin_e0,
+                self.reset_constant_em,
+                self.ema,
+                self.label_mode,
             )
             if reset_flag:
                 self.reset()
@@ -55,18 +62,18 @@ class SAR(nn.Module):
 
 
 @torch.enable_grad()
-def forward_and_adapt_sar(x, model, optimizer, margin, reset_constant, ema):
+def forward_and_adapt_sar(x, model, optimizer, margin, reset_constant, ema, label_mode):
     optimizer.zero_grad()
     model.train()
     logits = model(x)
-    entropies = binary_entropy_from_logits(logits)
+    entropies = entropy_from_logits(logits, label_mode=label_mode)
     selected = entropies[entropies < margin]
     loss = safe_mean_loss(selected, x.device)
     loss.backward()
 
     optimizer.first_step(zero_grad=True)
     logits_second = model(x)
-    entropies_second = binary_entropy_from_logits(logits_second)
+    entropies_second = entropy_from_logits(logits_second, label_mode=label_mode)
     selected_second = entropies_second[entropies_second < margin]
     loss_second = safe_mean_loss(selected_second, x.device)
     if selected_second.numel() > 0:

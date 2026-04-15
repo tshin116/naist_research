@@ -1,0 +1,6 @@
+# 3分類 source model を、検証用ユーザなしの固定 epoch で学習する設定。
+adaption: source
+max_epochs: 20
+learning_rate: 0.0005
+save_model: true
+resume: ./ckpt_fixed_3class

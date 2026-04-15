@@ -7,11 +7,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from TTA.adapt_algorithm.common import (
-    binary_classifier_weights,
-    binary_logits_to_two_class,
+    class_logits_to_model_logits,
+    classifier_weights,
     forward_with_features,
+    logits_to_class_logits,
     softmax_entropy,
-    two_class_to_binary_logits,
 )
 
 
@@ -26,11 +26,12 @@ class t3a(nn.Module):
         self.steps = steps
         self.episodic = episodic
         self.num_classes = getattr(args, "num_classes", 2)
+        self.label_mode = getattr(args, "label_mode", "binary")
         self.filter_K = getattr(args, "filter_K", 16)
         self.model.eval()
         self.model.requires_grad_(False)
 
-        weights, bias = binary_classifier_weights(model)
+        weights, bias = classifier_weights(model, label_mode=self.label_mode)
         self.register_buffer("warmup_supports", weights.detach().clone())
         warmup_logits = weights @ weights.T
         if bias is not None:
@@ -61,9 +62,9 @@ class t3a(nn.Module):
 @torch.no_grad()
 def forward_and_adapt(self, x, model):
     logits, feature = forward_with_features(model, x)
-    two_class_logits = binary_logits_to_two_class(logits)
-    yhat = F.one_hot(two_class_logits.argmax(1), self.num_classes).float()
-    ent = softmax_entropy(two_class_logits)
+    class_logits = logits_to_class_logits(logits, self.label_mode)
+    yhat = F.one_hot(class_logits.argmax(1), self.num_classes).float()
+    ent = softmax_entropy(class_logits)
 
     self.supports = self.supports.to(feature.device)
     self.labels = self.labels.to(feature.device)
@@ -76,7 +77,7 @@ def forward_and_adapt(self, x, model):
     supports = F.normalize(supports, dim=1)
     weights = supports.T @ labels
     adjusted_logits = feature @ F.normalize(weights, dim=0)
-    return two_class_to_binary_logits(adjusted_logits)
+    return class_logits_to_model_logits(adjusted_logits, self.label_mode)
 
 
 def select_supports(self):

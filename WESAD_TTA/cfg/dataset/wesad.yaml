@@ -9,6 +9,7 @@ sampling_rate: 700
 window_size: 3500
 num_channels: 8
 num_classes: 2
+label_mode: binary
 calibration_windows: 60
 batch_size: 64
 num_workers: 0

@@ -1,7 +1,7 @@
 """WESAD データセットの読み込みと前処理。
 
 WESAD の胸部センサ信号を被験者ごとに読み込み、固定長の時系列窓へ分割する。
-このファイルでは、元ラベルをストレス二値分類へ写像し、被験者ごとの冒頭窓を
+このファイルでは、元ラベルを分類タスク用ラベルへ写像し、被験者ごとの冒頭窓を
 基準に標準化したうえで PyTorch の `DataLoader` を作成する。
 """
 
@@ -14,7 +14,10 @@ from sklearn.preprocessing import StandardScaler
 from torch.utils.data import DataLoader, TensorDataset
 
 
-LABEL_MAPPING = {1: 0, 2: 1, 3: 0, 4: 0}
+LABEL_MAPPINGS = {
+    "binary": {1: 0, 2: 1, 3: 0, 4: 0},
+    "3class": {1: 0, 2: 1, 3: 2},
+}
 
 
 def get_window(chest, label_arr, start, end, window_size):
@@ -68,15 +71,26 @@ def segment_data_raw(data_dict, window_size):
     return np.array(x_data), np.array(y_data)
 
 
-def filter_map_labels_binary(x_data, y_data):
-    """WESAD の元ラベルをストレス二値分類のラベルへ変換する。
+def get_label_mapping(args):
+    """設定された分類タスクに対応する raw label の変換表を返す。"""
+    label_mode = getattr(args, "label_mode", "binary")
+    if label_mode not in LABEL_MAPPINGS:
+        valid_modes = ", ".join(sorted(LABEL_MAPPINGS))
+        raise ValueError(f"Unknown label_mode: {label_mode}. Choose from: {valid_modes}")
+    return LABEL_MAPPINGS[label_mode]
 
-    使用するラベルは 1, 2, 3, 4 のみとし、1, 3, 4 を非ストレス `0`、
-    2 をストレス `1` として扱う。
+
+def filter_map_labels(x_data, y_data, args):
+    """WESAD の元ラベルを学習用ラベルへ変換する。
+
+    `label_mode=binary` では 1, 3, 4 を非ストレス `0`、2 をストレス `1` とする。
+    `label_mode=3class` では 1 を baseline `0`、2 を stress `1`、3 を amusement `2`
+    として扱い、meditation である 4 は除外する。
     """
-    valid = np.isin(y_data, list(LABEL_MAPPING.keys()))
+    label_mapping = get_label_mapping(args)
+    valid = np.isin(y_data, list(label_mapping.keys()))
     x_data, y_data = x_data[valid], y_data[valid]
-    y_mapped = np.array([LABEL_MAPPING[val] for val in y_data], dtype=np.int64)
+    y_mapped = np.array([label_mapping[val] for val in y_data], dtype=np.int64)
     return x_data[: len(y_mapped)], y_mapped
 
 
@@ -116,6 +130,7 @@ def save_processed_subject(args, subject_id, x_data, y_data):
         window_size=args.window_size,
         num_channels=args.num_channels,
         calibration_windows=args.calibration_windows,
+        label_mode=getattr(args, "label_mode", "binary"),
     )
     return save_path
 
@@ -147,7 +162,7 @@ def preprocess_subject(args, subject_id):
     if x_sub.size == 0:
         raise ValueError(f"No WESAD windows were loaded for subject: {subject_id}")
 
-    x_sub, y_sub = filter_map_labels_binary(x_sub, y_sub)
+    x_sub, y_sub = filter_map_labels(x_sub, y_sub, args)
     # StandardScaler は 2 次元入力を受け取るため、窓とチャンネルを一度 flatten する。
     flat = x_sub.reshape(x_sub.shape[0], -1)
     scaler = StandardScaler()
@@ -211,20 +226,23 @@ def stack_subjects(subjects_data, subject_list):
     return np.vstack(x_list), np.concatenate(y_list)
 
 
-def prepare_tensors(x_data, y_data):
+def prepare_tensors(x_data, y_data, label_mode="binary"):
     """NumPy 配列を Conv1d 用の PyTorch テンソルへ変換する。
 
     前処理後の形状は `(batch, time, channel)` だが、PyTorch の `Conv1d` は
     `(batch, channel, time)` を要求するため、ここで軸を入れ替える。
     """
     x_tensor = torch.from_numpy(np.transpose(x_data, (0, 2, 1))).float()
-    y_tensor = torch.from_numpy(y_data.astype(np.float32))
+    if label_mode == "binary":
+        y_tensor = torch.from_numpy(y_data.astype(np.float32))
+    else:
+        y_tensor = torch.from_numpy(y_data.astype(np.int64)).long()
     return x_tensor, y_tensor
 
 
-def make_loader(x_data, y_data, batch_size, shuffle_data=False, num_workers=0):
+def make_loader(x_data, y_data, batch_size, shuffle_data=False, num_workers=0, label_mode="binary"):
     """X/y 配列から PyTorch `DataLoader` を作る。"""
-    x_tensor, y_tensor = prepare_tensors(x_data, y_data)
+    x_tensor, y_tensor = prepare_tensors(x_data, y_data, label_mode=label_mode)
     dataset = TensorDataset(x_tensor, y_tensor)
     return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle_data, num_workers=num_workers)
 
@@ -247,8 +265,23 @@ def get_loso_loaders(args, subjects_data=None):
     x_test = subjects_data[args.target_domain]["X"]
     y_test = subjects_data[args.target_domain]["y"]
 
-    source_loader = make_loader(x_train, y_train, args.batch_size, shuffle_data=True, num_workers=args.num_workers)
-    target_loader = make_loader(x_test, y_test, args.batch_size, shuffle_data=False, num_workers=args.num_workers)
+    label_mode = getattr(args, "label_mode", "binary")
+    source_loader = make_loader(
+        x_train,
+        y_train,
+        args.batch_size,
+        shuffle_data=True,
+        num_workers=args.num_workers,
+        label_mode=label_mode,
+    )
+    target_loader = make_loader(
+        x_test,
+        y_test,
+        args.batch_size,
+        shuffle_data=False,
+        num_workers=args.num_workers,
+        label_mode=label_mode,
+    )
     return source_loader, target_loader, train_subjects
 
 
@@ -266,6 +299,7 @@ def get_target_loader(args):
         args.batch_size,
         shuffle_data=target_shuffle,
         num_workers=args.num_workers,
+        label_mode=getattr(args, "label_mode", "binary"),
     )
     return target_loader
 

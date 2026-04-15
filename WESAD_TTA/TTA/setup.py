@@ -16,7 +16,13 @@ def setup_tent(args, model):
     model = tent.configure_model(model)
     params, _ = tent.collect_params(model)
     optimizer = torch.optim.Adam(params, lr=args.tent_lr, betas=(0.9, 0.999), weight_decay=0.0)
-    return tent.Tent(model, optimizer, steps=args.tent_steps, episodic=args.episodic)
+    return tent.Tent(
+        model,
+        optimizer,
+        steps=args.tent_steps,
+        episodic=args.episodic,
+        label_mode=getattr(args, "label_mode", "binary"),
+    )
 
 
 def setup_norm(args, model):

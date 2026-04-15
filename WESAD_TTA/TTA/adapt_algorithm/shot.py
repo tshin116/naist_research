@@ -5,10 +5,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from TTA.adapt_algorithm.common import (
-    binary_logits_to_two_class,
     collect_bn1d_params,
     configure_bn1d_for_adaptation,
     copy_model_and_optimizer,
+    logits_to_class_logits,
     load_model_and_optimizer,
     pseudo_label_loss,
     softmax_entropy,
@@ -26,6 +26,7 @@ class SHOT(nn.Module):
         self.steps = steps
         self.episodic = episodic
         self.threshold = getattr(args, "pseudo_threshold", 0.9)
+        self.label_mode = getattr(args, "label_mode", "binary")
         self.model_state, self.optimizer_state = copy_model_and_optimizer(self.model, self.optimizer)
 
     def forward(self, x):
@@ -33,29 +34,29 @@ class SHOT(nn.Module):
             self.reset()
         outputs = None
         for _ in range(self.steps):
-            outputs = forward_and_adapt(x, self.model, self.optimizer, self.threshold)
+            outputs = forward_and_adapt(x, self.model, self.optimizer, self.threshold, self.label_mode)
         return outputs
 
     def reset(self):
         load_model_and_optimizer(self.model, self.optimizer, self.model_state, self.optimizer_state)
 
 
-def loss_shot(logits, threshold):
+def loss_shot(logits, threshold, label_mode):
     """SHOT の entropy + diversity + pseudo-label loss。"""
-    two_class_logits = binary_logits_to_two_class(logits)
-    ent_loss = softmax_entropy(two_class_logits).mean()
-    probs = torch.softmax(two_class_logits, dim=1)
+    class_logits = logits_to_class_logits(logits, label_mode)
+    ent_loss = softmax_entropy(class_logits).mean()
+    probs = torch.softmax(class_logits, dim=1)
     mean_probs = probs.mean(dim=0)
     diversity = torch.sum(mean_probs * torch.log(mean_probs.clamp_min(1e-12)))
-    pl_loss = pseudo_label_loss(two_class_logits, confidence_threshold=threshold)
+    pl_loss = pseudo_label_loss(class_logits, confidence_threshold=threshold, label_mode=label_mode)
     return ent_loss + diversity + 0.1 * pl_loss
 
 
 @torch.enable_grad()
-def forward_and_adapt(x, model, optimizer, threshold):
+def forward_and_adapt(x, model, optimizer, threshold, label_mode):
     model.train()
     logits = model(x)
-    loss = loss_shot(logits, threshold)
+    loss = loss_shot(logits, threshold, label_mode)
     loss.backward()
     optimizer.step()
     optimizer.zero_grad()

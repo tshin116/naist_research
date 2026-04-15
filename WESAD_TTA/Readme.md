@@ -1,7 +1,9 @@
 # WESAD_TTA ディレクトリ構成ガイド
 
-このディレクトリは、WESAD データセットを用いたストレス二値分類について、1D-CNN の LOSO
-評価と Test-Time Adaptation を実行するための実験コードをまとめたものです。
+このディレクトリは、WESAD データセットを用いた 1D-CNN の LOSO 評価と
+Test-Time Adaptation を実行するための実験コードをまとめたものです。
+現在は source model の学習について、従来のストレス二値分類と
+baseline / stress / amusement の 3 分類を設定で切り替えられます。
 
 元の `self_learning_wesad/stress_detection_1d_cnn_loso_pytorch.py` は、前処理、モデル定義、
 学習、評価、設定値、保存処理が 1 ファイルに集約されていました。`WESAD_TTA` では OFTTA の構成を
@@ -14,7 +16,7 @@
 
 1. `cfg` の YAML ファイルからデータセット設定とアルゴリズム設定を読み込む
 2. `data_processing` で WESAD の被験者データを読み込み、5 秒窓へ分割する
-3. WESAD のラベルを「非ストレス」と「ストレス」の二値へ変換する
+3. WESAD のラベルを設定に応じて二値分類または 3 分類へ変換する
 4. 被験者ごとに標準化し、Conv1d 用のテンソル形状へ変換する
 5. `models` の 1D-CNN を使って外側 LOSO と内側 LOSO を実行する
 6. 学習済みモデルを `ckpt` に保存する
@@ -37,7 +39,14 @@ YAML として分離しています。
 - `cfg/dataset/wesad.yaml`
   WESAD 固有の設定です。データセットパス、サンプリング周波数、窓幅、チャンネル数、バッチサイズなどを定義します。
   デフォルトでは raw data として `../self_learning_wesad/WESAD` を参照し、前処理済みデータは
-  `./data/wesad/processed` に保存します。
+  `./data/wesad/processed` に保存します。`label_mode: binary` のため、
+  raw label `1,3,4` を `0: Non-Stress`、raw label `2` を `1: Stress` に変換します。
+
+- `cfg/dataset/wesad_3class.yaml`
+  WESAD を 3 分類 source model として学習する設定です。前処理済みデータは
+  `./data/wesad/processed_3class` に分けて保存します。`label_mode: 3class` のため、
+  raw label `1` を `0: Baseline`、raw label `2` を `1: Stress`、raw label `3` を
+  `2: Amusement` に変換します。raw label `4: Meditation` はこの 3 分類では除外します。
 
 - `cfg/dataset/wesad_target_shuffle.yaml`
   評価時の target loader だけを shuffle する設定です。Tent/OFTTA の batch composition 依存を調べるために使います。
@@ -50,30 +59,39 @@ YAML として分離しています。
   内側 LOSO を使わず、固定 epoch で source model を学習する設定です。既存の nested LOSO checkpoint を
   上書きしないよう、デフォルト保存先は `./ckpt_fixed` です。
 
+- `cfg/algorithm/source_fixed_3class.yaml`
+  3 分類 source model を固定 epoch で学習する設定です。二値分類の固定 epoch checkpoint と
+  混ざらないよう、デフォルト保存先は `./ckpt_fixed_3class` です。
+
 - `cfg/algorithm/tent.yaml`
   Tent 適応に使う設定です。Tent の学習率、1 バッチあたりの更新回数、episodic adaptation の有無を定義します。
 
 - `cfg/algorithm/*.yaml`
   `norm`, `pl`, `shot`, `sar`, `t3a`, `tast`, `tast_bn`, `oftta` など、各 TTA 手法の設定です。
-  OFTTA 由来の多クラス・2D-CNN 前提の設定を、WESAD の二値分類・1D-CNN 用に分けています。
+  OFTTA 由来の 2D-CNN 前提の設定を、WESAD の 1D-CNN 用に分けています。
+  分類クラス数は dataset config の `label_mode` と `num_classes` で切り替えます。
 
 ### `data_processing/`
 
 WESAD の読み込みと前処理を担当します。
 
 - `data_processing/wesad.py`
-  被験者ごとの `.pkl` 読み込み、胸部センサ信号の 5 秒窓分割、ラベルの二値化、被験者ごとの標準化、
+  被験者ごとの `.pkl` 読み込み、胸部センサ信号の 5 秒窓分割、ラベル変換、被験者ごとの標準化、
   PyTorch `DataLoader` 作成を行います。Conv1d は `(batch, channels, time)` を入力に取るため、
   元の `(window, time, channel)` から軸を入れ替える処理もここに集約しています。
   また、前処理済み `.npz` の保存と読み込み、評価専用 target loader の作成も担当します。
+  `label_mode=binary` と `label_mode=3class` で保存先を分けることで、異なるラベル体系の
+  `.npz` を誤って再利用しない構成にしています。
 
 ### `models/`
 
 モデル定義を置くディレクトリです。
 
 - `models/cnn1d.py`
-  WESAD 用の 1D-CNN を定義します。入力は 8 チャンネルの胸部センサ時系列で、出力は二値分類用の
-  1 次元 logits です。損失関数には `BCEWithLogitsLoss` を使う前提です。
+  WESAD 用の 1D-CNN を定義します。入力は 8 チャンネルの胸部センサ時系列です。
+  二値分類では既存 checkpoint と互換性を保つため 1 次元 logits を出力し、
+  `BCEWithLogitsLoss` を使います。3 分類では `num_classes=3` の logits を出力し、
+  `CrossEntropyLoss` を使います。
   T3A/OFTTA/TAST 系の手法が feature を使えるよう、最後の線形分類層の直前の 64 次元 feature も
   取り出せるようにしています。
 
@@ -85,28 +103,40 @@ Test-Time Adaptation の設定とアルゴリズム実装を置くディレク�
   `args.adaption` の値に応じて、通常の source 評価か Tent 評価かを切り替えます。
 
 - `TTA/adapt_algorithm/tent.py`
-  WESAD の 1D-CNN 向け Tent 実装です。元の Tent 実装は `BatchNorm2d` と多クラス softmax を想定することが多いですが、
-  ここでは `BatchNorm1d` と二値 logits に合わせています。テストバッチごとに予測エントロピーを最小化し、
+  WESAD の 1D-CNN 向け Tent 実装です。元の Tent 実装は `BatchNorm2d` を想定することが多いですが、
+  ここでは `BatchNorm1d` に合わせています。テストバッチごとに予測エントロピーを最小化し、
   BatchNorm の scale と bias だけを更新します。
 
 - `TTA/adapt_algorithm/*.py`
-  OFTTA ディレクトリにある TTA 手法を、WESAD の 1D-CNN と single-logit 二値分類に合わせて移植した実装です。
+  OFTTA ディレクトリにある TTA 手法を、WESAD の 1D-CNN に合わせて移植した実装です。
   追加済みの手法は `norm`, `pl`, `shot`, `sar`, `t3a`, `tast`, `tast_bn`, `oftta` です。
-  `BatchNorm2d` 前提の処理は `BatchNorm1d` に変更し、多クラス softmax 前提の entropy や pseudo-label 処理は
-  single-logit から 2 クラス logits を作って扱う形に変更しています。
+  `BatchNorm2d` 前提の処理は `BatchNorm1d` に変更しています。二値分類では single-logit を内部で
+  2 クラス logits に変換し、3 分類ではモデルの 3 クラス logits をそのまま使います。
+  entropy、pseudo-label、support selection は共通関数を通して分類モードを切り替えます。
 
 ### `scripts/`
 
 実験を再現しやすくするためのシェルスクリプトです。
 
 - `scripts/wesad/preprocess_wesad.sh`
-  WESAD の raw `.pkl` から、被験者ごとの前処理済み `.npz` を作成します。
+  WESAD の raw `.pkl` から、二値分類用の前処理済み `.npz` を作成します。
+  保存先は `data/wesad/processed/` です。
+
+- `scripts/wesad/preprocess_wesad_3class.sh`
+  WESAD の raw `.pkl` から、3 分類用の前処理済み `.npz` を作成します。
+  保存先は `data/wesad/processed_3class/` です。
 
 - `scripts/wesad/train_loso_wesad.sh`
   WESAD の LOSO 学習を実行します。
 
 - `scripts/wesad/train_fixed_loso_wesad.sh`
   検証ユーザを置かず、固定 epoch で外側 LOSO 学習を実行します。
+
+- `scripts/wesad/train_loso_wesad_3class.sh`
+  WESAD を baseline / stress / amusement の 3 分類として LOSO 学習します。
+
+- `scripts/wesad/train_fixed_loso_wesad_3class.sh`
+  WESAD 3 分類 source model を、内側 LOSO なしの固定 epoch で学習します。
 
 - `scripts/wesad/adapt_source_wesad.sh`
   各被験者をターゲットにして、適応なしの source 評価を実行します。
@@ -117,11 +147,17 @@ Test-Time Adaptation の設定とアルゴリズム実装を置くディレク�
 - `scripts/wesad/adapt_*_wesad.sh`
   各 TTA 手法を全被験者に対して実行するスクリプトです。`adapt.sh` は source と全 TTA 手法を順に呼び出します。
 
+- `scripts/wesad/adapt_tta_wesad_3class.sh`
+  3 分類 checkpoint を使い、source と各 TTA 手法を全被験者に対して評価します。
+
 - `scripts/wesad/compare_source_tent_oftta_shuffle_wesad.sh`
   target loader を shuffle して、Source、Tent、OFTTA の比較表とグラフを作成します。
 
 - `scripts/wesad/compare_source_tent_oftta_fixed_shuffle_wesad.sh`
   固定 epoch checkpoint `./ckpt_fixed` を使い、target loader を shuffle して比較表とグラフを作成します。
+
+- `scripts/wesad/compare_source_tent_oftta_wesad_3class.sh`
+  3 分類 checkpoint `./ckpt_3class` を使い、Source、Tent、OFTTA の比較表とグラフを作成します。
 
 ### `ckpt/`
 
@@ -154,12 +190,17 @@ data/
       S2_ws3500_ch8_cal60.npz
       S3_ws3500_ch8_cal60.npz
       ...
+    processed_3class/
+      S2_ws3500_ch8_cal60.npz
+      S3_ws3500_ch8_cal60.npz
+      ...
 ```
 
 `.npz` には次の配列が保存されます。
 
 - `X`: shape `(num_windows, 3500, 8)` の前処理済み時系列
-- `y`: shape `(num_windows,)` の二値ラベル
+- `y`: shape `(num_windows,)` の学習ラベル。二値分類では `0: Non-Stress`, `1: Stress`、
+  3 分類では `0: Baseline`, `1: Stress`, `2: Amusement` です。
 
 この保存単位は被験者ごとです。LOSO 評価で train/test をまたいだ標準化にならないよう、
 各被験者の冒頭 `calibration_windows` 窓だけで scaler を fit しています。
@@ -189,7 +230,8 @@ data/
   乱数シード固定、device 選択、モデル生成、データセット生成をまとめた補助関数です。
 
 - `metrics.py`
-  loss、accuracy、クラス別 F1、mean F1、混同行列などの評価指標を計算します。
+  loss、accuracy、クラス別 F1、macro/mean F1、混同行列などの評価指標を計算します。
+  二値分類では `BCEWithLogitsLoss`、3 分類では `CrossEntropyLoss` を使うように切り替えます。
 
 ## 実行方法
 
@@ -197,9 +239,11 @@ data/
 
 ### LOSO 学習
 
+二値分類の通常 LOSO 学習です。
+
 ```bash
 cd /work/shinsaku-t/naist_reserch/WESAD_TTA
-conda run -n wesad_env bash train.sh
+conda run -n wesad_env bash scripts/wesad/train_loso_wesad.sh
 ```
 
 または直接:
@@ -207,6 +251,22 @@ conda run -n wesad_env bash train.sh
 ```bash
 conda run -n wesad_env python train.py \
   --dataset_cfg ./cfg/dataset/wesad.yaml \
+  --algorithm_cfg ./cfg/algorithm/source.yaml
+```
+
+3 分類の通常 LOSO 学習はこちらです。保存先は `cfg/dataset/wesad_3class.yaml` により
+`ckpt_3class/` になります。
+
+```bash
+cd /work/shinsaku-t/naist_reserch/WESAD_TTA
+conda run -n wesad_env bash scripts/wesad/train_loso_wesad_3class.sh
+```
+
+直接実行する場合:
+
+```bash
+conda run -n wesad_env python train.py \
+  --dataset_cfg ./cfg/dataset/wesad_3class.yaml \
   --algorithm_cfg ./cfg/algorithm/source.yaml
 ```
 
@@ -230,7 +290,16 @@ conda run -n wesad_env python adapt.py \
   --algorithm_cfg ./cfg/algorithm/source.yaml
 ```
 
+3 分類の固定 epoch 学習はこちらです。保存先は `ckpt_fixed_3class/` です。
+
+```bash
+cd /work/shinsaku-t/naist_reserch/WESAD_TTA
+conda run -n wesad_env bash scripts/wesad/train_fixed_loso_wesad_3class.sh
+```
+
 ### 前処理済みデータの作成
+
+二値分類用の前処理です。
 
 ```bash
 cd /work/shinsaku-t/naist_reserch/WESAD_TTA
@@ -240,6 +309,15 @@ conda run -n wesad_env bash scripts/wesad/preprocess_wesad.sh
 このコマンドを事前に実行しておくと、以後の学習や評価では
 `data/wesad/processed/` の `.npz` を再利用できます。未作成の被験者がある場合は、
 実行時に raw `.pkl` から自動生成して保存します。
+
+3 分類の前処理済みデータを事前に作る場合はこちらです。
+
+```bash
+cd /work/shinsaku-t/naist_reserch/WESAD_TTA
+conda run -n wesad_env bash scripts/wesad/preprocess_wesad_3class.sh
+```
+
+この場合は `data/wesad/processed_3class/` に保存されます。
 
 ### source 評価と Tent 評価
 
@@ -261,6 +339,22 @@ conda run -n wesad_env python adapt.py \
 `t3a.yaml`, `tast.yaml`, `tast_bn.yaml`, `oftta.yaml` に変えることで、同じ checkpoint に対して
 各 TTA 手法を評価できます。
 
+3 分類 checkpoint に対して TTA を評価する場合は、3 分類用 dataset config を指定します。
+
+```bash
+conda run -n wesad_env python adapt.py \
+  --target_domain S2 \
+  --dataset_cfg ./cfg/dataset/wesad_3class.yaml \
+  --algorithm_cfg ./cfg/algorithm/tent.yaml
+```
+
+全被験者・全手法をまとめて評価する場合はこちらです。
+
+```bash
+cd /work/shinsaku-t/naist_reserch/WESAD_TTA
+conda run -n wesad_env bash scripts/wesad/adapt_tta_wesad_3class.sh
+```
+
 ### target loader を shuffle した比較
 
 通常の `wesad.yaml` では target window を時系列順に batch 化します。先頭の安静時 window が Tent/OFTTA に
@@ -277,9 +371,28 @@ conda run -n wesad_env bash scripts/wesad/compare_source_tent_oftta_shuffle_wesa
 conda run -n wesad_env bash scripts/wesad/compare_source_tent_oftta_fixed_shuffle_wesad.sh
 ```
 
+### 3 分類 Source / Tent / OFTTA 比較
+
+3 分類 checkpoint `ckpt_3class/` を使って、Source、Tent、OFTTA を被験者ごとに比較します。
+
+```bash
+cd /work/shinsaku-t/naist_reserch/WESAD_TTA
+conda run -n wesad_env bash scripts/wesad/compare_source_tent_oftta_wesad_3class.sh
+```
+
+直接実行する場合は次の通りです。
+
+```bash
+conda run -n wesad_env python compare_source_tent_oftta.py \
+  --dataset_cfg ./cfg/dataset/wesad_3class.yaml \
+  --resume ./ckpt_3class
+```
+
 ## 注意点
 
 - `adapt.py` を実行する前に、対応する被験者のチェックポイントを `train.py` で作成しておく必要があります。
+- 3 分類 TTA を実行する場合は、先に `wesad_3class.yaml` で学習した 3 分類 checkpoint を用意してください。
+  二値 checkpoint と 3 分類 checkpoint は最終層の形状が異なるため互換性がありません。
 - `adapt.py` は評価専用 loader を使うため、target 被験者だけを読み込みます。source 評価で target 以外の
   被験者データを読む必要はありません。
 - WESAD は被験者間差が大きいため、通常のランダム分割ではなく LOSO で未知被験者性能を見る構成にしています。

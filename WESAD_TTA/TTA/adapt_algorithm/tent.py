@@ -1,25 +1,23 @@
-"""WESAD の 1D-CNN 向け Tent 実装。
-
-一般的な画像分類用 Tent は `BatchNorm2d` と多クラス softmax を想定することが多い。
-ここでは WESAD の Conv1d モデルに合わせ、`BatchNorm1d` と二値分類 logits 用の
-エントロピー最小化に変更している。
-"""
+"""WESAD の 1D-CNN 向け Tent 実装。"""
 
 from copy import deepcopy
 
 import torch
 import torch.nn as nn
 
+from TTA.adapt_algorithm.common import entropy_from_logits
+
 
 class Tent(nn.Module):
     """forward 時にテストバッチで自己適応するラッパーモジュール。"""
 
-    def __init__(self, model, optimizer, steps=1, episodic=False):
+    def __init__(self, model, optimizer, steps=1, episodic=False, label_mode="binary"):
         super().__init__()
         self.model = model
         self.optimizer = optimizer
         self.steps = steps
         self.episodic = episodic
+        self.label_mode = label_mode
         if steps <= 0:
             raise ValueError("tent requires at least one adaptation step")
 
@@ -33,7 +31,7 @@ class Tent(nn.Module):
 
         outputs = None
         for _ in range(self.steps):
-            outputs = forward_and_adapt(x, self.model, self.optimizer)
+            outputs = forward_and_adapt(x, self.model, self.optimizer, self.label_mode)
         return outputs
 
     def reset(self):
@@ -41,16 +39,8 @@ class Tent(nn.Module):
         load_model_and_optimizer(self.model, self.optimizer, self.model_state, self.optimizer_state)
 
 
-def binary_entropy_from_logits(logits):
-    """二値分類 logits から Bernoulli エントロピーを計算する。"""
-    probs = torch.sigmoid(logits)
-    eps = torch.finfo(probs.dtype).eps
-    probs = probs.clamp(min=eps, max=1.0 - eps)
-    return -(probs * probs.log() + (1.0 - probs) * (1.0 - probs).log())
-
-
 @torch.enable_grad()
-def forward_and_adapt(x, model, optimizer):
+def forward_and_adapt(x, model, optimizer, label_mode):
     """1 バッチに対して forward、エントロピー計算、BN パラメータ更新を行う。"""
     model.train()
 
@@ -59,7 +49,7 @@ def forward_and_adapt(x, model, optimizer):
     if isinstance(outputs, tuple):
         outputs, _ = outputs
 
-    loss = binary_entropy_from_logits(outputs).mean()
+    loss = entropy_from_logits(outputs, label_mode=label_mode).mean()
     loss.backward()
     optimizer.step()
     optimizer.zero_grad()

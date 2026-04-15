@@ -9,10 +9,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from TTA.adapt_algorithm.common import (
-    binary_logits_to_two_class,
     forward_with_features,
+    logits_to_class_logits,
+    probs_to_model_logits,
     softmax_entropy,
-    two_class_probs_to_binary_logits,
 )
 from TTA.adapt_algorithm.tast_bn import compute_logits, select_supports, target_generation
 
@@ -27,6 +27,7 @@ class TAST(nn.Module):
         self.steps = steps
         self.episodic = episodic
         self.num_classes = getattr(args, "num_classes", 2)
+        self.label_mode = getattr(args, "label_mode", "binary")
         self.filter_K = getattr(args, "filter_K", 16)
         self.tau = getattr(args, "tast_tau", 10.0)
         self.k = getattr(args, "tast_k", 1)
@@ -45,9 +46,9 @@ class TAST(nn.Module):
 def forward_and_adapt(self, x, model):
     model.eval()
     logits, feature = forward_with_features(model, x)
-    two_class_logits = binary_logits_to_two_class(logits)
-    yhat = F.one_hot(two_class_logits.argmax(1), self.num_classes).float()
-    ent = softmax_entropy(two_class_logits)
+    class_logits = logits_to_class_logits(logits, self.label_mode)
+    yhat = F.one_hot(class_logits.argmax(1), self.num_classes).float()
+    ent = softmax_entropy(class_logits)
 
     if self.supports is None:
         self.supports = feature.detach()
@@ -60,7 +61,7 @@ def forward_and_adapt(self, x, model):
 
     supports, labels = select_supports(self)
     _, outputs = target_generation(self, feature, supports, labels)
-    return two_class_probs_to_binary_logits(outputs)
+    return probs_to_model_logits(outputs, self.label_mode)
 
 
 def collect_params(model):

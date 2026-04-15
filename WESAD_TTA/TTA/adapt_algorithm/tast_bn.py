@@ -5,14 +5,14 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from TTA.adapt_algorithm.common import (
-    binary_logits_to_two_class,
     collect_bn1d_params,
     configure_bn1d_for_adaptation,
     copy_model_and_optimizer,
     forward_with_features,
+    logits_to_class_logits,
     load_model_and_optimizer,
+    probs_to_model_logits,
     softmax_entropy,
-    two_class_probs_to_binary_logits,
 )
 
 
@@ -27,6 +27,7 @@ class TAST_BN(nn.Module):
         self.steps = steps
         self.episodic = episodic
         self.num_classes = getattr(args, "num_classes", 2)
+        self.label_mode = getattr(args, "label_mode", "binary")
         self.filter_K = getattr(args, "filter_K", 16)
         self.tau = getattr(args, "tast_tau", 10.0)
         self.k = getattr(args, "tast_k", 1)
@@ -54,9 +55,9 @@ class TAST_BN(nn.Module):
 def forward_and_adapt(self, x, model, optimizer):
     model.train()
     logits, feature = forward_with_features(model, x)
-    two_class_logits = binary_logits_to_two_class(logits)
-    yhat = F.one_hot(two_class_logits.argmax(1), self.num_classes).float()
-    ent = softmax_entropy(two_class_logits)
+    class_logits = logits_to_class_logits(logits, self.label_mode)
+    yhat = F.one_hot(class_logits.argmax(1), self.num_classes).float()
+    ent = softmax_entropy(class_logits)
 
     if self.supports is None:
         self.supports = feature.detach()
@@ -74,7 +75,7 @@ def forward_and_adapt(self, x, model, optimizer):
     loss.backward()
     optimizer.step()
     optimizer.zero_grad()
-    return two_class_probs_to_binary_logits(outputs)
+    return probs_to_model_logits(outputs, self.label_mode)
 
 
 def select_supports(self):

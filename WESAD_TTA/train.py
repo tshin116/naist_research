@@ -12,26 +12,23 @@ from datetime import datetime
 import numpy as np
 import pandas as pd
 import torch
-import torch.nn as nn
 import yaml
 from sklearn.metrics import classification_report
 from sklearn.utils import shuffle
 
 from config import parse_args
 from data_processing.wesad import load_data_per_subject, make_loader, stack_subjects
-from metrics import compute_pos_weight, evaluate_model, format_confusion_matrix
+from metrics import CLASS_NAMES, evaluate_model, format_confusion_matrix, make_criterion, move_criterion_to_device
 from utils import get_device, get_model, set_seed
 
 
-def fit_model(model, train_loader, val_loader, args, device, pos_weight=None, patience=None):
+def fit_model(model, train_loader, val_loader, args, device, y_train=None, patience=None):
     """1 つのモデルを指定 epoch 数だけ学習する。
 
     `val_loader` がある場合は検証 loss が最も小さい重みを保持する。
     `patience` が指定されていれば、検証 loss の改善が止まった時点で早期終了する。
     """
-    if pos_weight is not None:
-        pos_weight = pos_weight.to(device)
-    criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+    criterion = move_criterion_to_device(make_criterion(args, y_train=y_train), device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
 
     history = {"loss": [], "accuracy": []}
@@ -62,7 +59,10 @@ def fit_model(model, train_loader, val_loader, args, device, pos_weight=None, pa
 
             batch_size = y_batch.size(0)
             total_loss += loss.item() * batch_size
-            predictions = (torch.sigmoid(logits) > 0.5).float()
+            if getattr(args, "label_mode", "binary") == "binary":
+                predictions = (torch.sigmoid(logits) > 0.5).float()
+            else:
+                predictions = logits.argmax(dim=1)
             total_correct += int((predictions == y_batch).sum().item())
             total_samples += batch_size
 
@@ -73,7 +73,13 @@ def fit_model(model, train_loader, val_loader, args, device, pos_weight=None, pa
         if val_loader is None:
             continue
 
-        val_metrics = evaluate_model(model, val_loader, device, criterion=criterion)
+        val_metrics = evaluate_model(
+            model,
+            val_loader,
+            device,
+            criterion=criterion,
+            num_classes=getattr(args, "num_classes", None),
+        )
         history["val_loss"].append(val_metrics["loss"])
         history["val_accuracy"].append(val_metrics["accuracy"])
 
@@ -101,8 +107,23 @@ def train_with_subject_validation(subjects_data, train_subjects, val_subject, ar
     y_val = subjects_data[val_subject]["y"]
 
     x_train, y_train = shuffle(x_train, y_train, random_state=args.seed)
-    train_loader = make_loader(x_train, y_train, args.batch_size, shuffle_data=True, num_workers=args.num_workers)
-    val_loader = make_loader(x_val, y_val, args.batch_size, shuffle_data=False, num_workers=args.num_workers)
+    label_mode = getattr(args, "label_mode", "binary")
+    train_loader = make_loader(
+        x_train,
+        y_train,
+        args.batch_size,
+        shuffle_data=True,
+        num_workers=args.num_workers,
+        label_mode=label_mode,
+    )
+    val_loader = make_loader(
+        x_val,
+        y_val,
+        args.batch_size,
+        shuffle_data=False,
+        num_workers=args.num_workers,
+        label_mode=label_mode,
+    )
 
     model = get_model(args).to(device)
     history, best_epoch, criterion = fit_model(
@@ -111,10 +132,16 @@ def train_with_subject_validation(subjects_data, train_subjects, val_subject, ar
         val_loader,
         args,
         device,
-        pos_weight=compute_pos_weight(y_train),
+        y_train=y_train,
         patience=args.early_stopping_patience,
     )
-    val_metrics = evaluate_model(model, val_loader, device, criterion=criterion)
+    val_metrics = evaluate_model(
+        model,
+        val_loader,
+        device,
+        criterion=criterion,
+        num_classes=getattr(args, "num_classes", None),
+    )
     return {
         "val_subject": val_subject,
         "train_subjects": train_subjects,
@@ -123,6 +150,7 @@ def train_with_subject_validation(subjects_data, train_subjects, val_subject, ar
         "val_f1": val_metrics["f1"],
         "val_f1_non_stress": val_metrics["f1_non_stress"],
         "val_f1_stress": val_metrics["f1_stress"],
+        "val_f1_class_2": val_metrics.get("f1_class_2", None),
         "val_mean_f1": val_metrics["mean_f1"],
         "best_epoch": int(best_epoch),
         "history": history,
@@ -147,6 +175,7 @@ def run_inner_loso_cv(subjects_data, inner_subjects, args, device):
             f"Val Acc: {fold_result['val_accuracy']:.4f}, "
             f"Val F1(0): {fold_result['val_f1_non_stress']:.4f}, "
             f"Val F1(1): {fold_result['val_f1_stress']:.4f}, "
+            f"Val F1(2): {(fold_result['val_f1_class_2'] or 0.0):.4f}, "
             f"Val Mean F1: {fold_result['val_mean_f1']:.4f}, "
             f"Best Epoch: {fold_result['best_epoch']}"
         )
@@ -165,6 +194,7 @@ def run_inner_loso_cv(subjects_data, inner_subjects, args, device):
         "avg_val_f1": float(np.mean([result["val_f1"] for result in inner_results])),
         "avg_val_f1_non_stress": float(np.mean([result["val_f1_non_stress"] for result in inner_results])),
         "avg_val_f1_stress": float(np.mean([result["val_f1_stress"] for result in inner_results])),
+        "avg_val_f1_class_2": float(np.mean([(result["val_f1_class_2"] or 0.0) for result in inner_results])),
         "avg_val_mean_f1": float(np.mean([result["val_mean_f1"] for result in inner_results])),
         "folds": inner_results,
     }
@@ -174,7 +204,14 @@ def train_final_model(subjects_data, train_subjects, selected_epochs, args, devi
     """内側 LOSO で決めた epoch 数を使い、訓練被験者全体で最終学習する。"""
     x_train, y_train = stack_subjects(subjects_data, train_subjects)
     x_train, y_train = shuffle(x_train, y_train, random_state=args.seed)
-    train_loader = make_loader(x_train, y_train, args.batch_size, shuffle_data=True, num_workers=args.num_workers)
+    train_loader = make_loader(
+        x_train,
+        y_train,
+        args.batch_size,
+        shuffle_data=True,
+        num_workers=args.num_workers,
+        label_mode=getattr(args, "label_mode", "binary"),
+    )
 
     model = get_model(args).to(device)
     run_args = copy.copy(args)
@@ -185,7 +222,7 @@ def train_final_model(subjects_data, train_subjects, selected_epochs, args, devi
         val_loader=None,
         args=run_args,
         device=device,
-        pos_weight=compute_pos_weight(y_train),
+        y_train=y_train,
         patience=None,
     )
     return model, history, criterion
@@ -218,6 +255,7 @@ def save_loso_checkpoint(args, model, test_subject, train_subjects, selected_epo
                 "accuracy": test_metrics["accuracy"],
                 "f1_non_stress": test_metrics["f1_non_stress"],
                 "f1_stress": test_metrics["f1_stress"],
+                "f1_per_class": test_metrics["f1_per_class"],
                 "mean_f1": test_metrics["mean_f1"],
                 "confusion_matrix": test_metrics["confusion_matrix"],
             },
@@ -268,18 +306,33 @@ def main():
         model, history, criterion = train_final_model(subjects_data, train_subjects, selected_epochs, args, device)
         x_test = subjects_data[test_subject]["X"]
         y_test = subjects_data[test_subject]["y"]
-        test_loader = make_loader(x_test, y_test, args.batch_size, shuffle_data=False, num_workers=args.num_workers)
-        test_metrics = evaluate_model(model, test_loader, device, criterion=criterion)
+        test_loader = make_loader(
+            x_test,
+            y_test,
+            args.batch_size,
+            shuffle_data=False,
+            num_workers=args.num_workers,
+            label_mode=getattr(args, "label_mode", "binary"),
+        )
+        test_metrics = evaluate_model(
+            model,
+            test_loader,
+            device,
+            criterion=criterion,
+            num_classes=getattr(args, "num_classes", None),
+        )
         report = classification_report(test_metrics["y_true"], test_metrics["y_pred"], output_dict=True, zero_division=0)
 
         print(
             f"Subject {test_subject} - "
             f"Accuracy: {test_metrics['accuracy']:.4f}, "
-            f"F1(0): {test_metrics['f1_non_stress']:.4f}, "
-            f"F1(1): {test_metrics['f1_stress']:.4f}, "
+            f"F1(0): {test_metrics.get('f1_class_0', 0.0):.4f}, "
+            f"F1(1): {test_metrics.get('f1_class_1', 0.0):.4f}, "
+            f"F1(2): {test_metrics.get('f1_class_2', 0.0):.4f}, "
             f"Mean F1: {test_metrics['mean_f1']:.4f}"
         )
-        print(format_confusion_matrix(test_metrics["confusion_matrix"]))
+        class_names = CLASS_NAMES.get(getattr(args, "label_mode", "binary"))
+        print(format_confusion_matrix(test_metrics["confusion_matrix"], class_names=class_names))
 
         saved_path = save_loso_checkpoint(
             args,
@@ -298,11 +351,11 @@ def main():
                 "Accuracy": test_metrics["accuracy"],
                 "F1_Non_Stress_0": test_metrics["f1_non_stress"],
                 "F1_Stress_1": test_metrics["f1_stress"],
+                "F1_Class_0": test_metrics.get("f1_class_0", 0.0),
+                "F1_Class_1": test_metrics.get("f1_class_1", 0.0),
+                "F1_Class_2": test_metrics.get("f1_class_2", None),
                 "Mean_F1": test_metrics["mean_f1"],
-                "TN": int(test_metrics["confusion_matrix"][0, 0]),
-                "FP": int(test_metrics["confusion_matrix"][0, 1]),
-                "FN": int(test_metrics["confusion_matrix"][1, 0]),
-                "TP": int(test_metrics["confusion_matrix"][1, 1]),
+                "Confusion_Matrix": test_metrics["confusion_matrix"].tolist(),
                 "Selected_Epochs": selected_epochs,
                 "Inner_CV_Avg_Mean_F1": inner_summary["avg_val_mean_f1"],
                 "Checkpoint": saved_path,
