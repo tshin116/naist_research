@@ -36,6 +36,7 @@ slurm-*.out
 pytorch-classification/data/
 wesad/data/
 wesad/dataset/
+self_learning_wesad/
 
 # Model checkpoints and learned weights
 *.h5

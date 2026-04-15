@@ -1,8 +1,7 @@
 """WESAD の 1D-CNN 向け Tent 実装。
 
-一般的な画像分類用 Tent は `BatchNorm2d` と多クラス softmax を想定することが多い。
-ここでは WESAD の Conv1d モデルに合わせ、`BatchNorm1d` と二値分類 logits 用の
-エントロピー最小化に変更している。
+オリジナルの Tent (Wang et al., ICLR 2021) と同様に、テストバッチの予測
+エントロピーを最小化して BatchNorm1d の affine パラメータを適応する。
 """
 
 from copy import deepcopy
@@ -41,12 +40,10 @@ class Tent(nn.Module):
         load_model_and_optimizer(self.model, self.optimizer, self.model_state, self.optimizer_state)
 
 
-def binary_entropy_from_logits(logits):
-    """二値分類 logits から Bernoulli エントロピーを計算する。"""
-    probs = torch.sigmoid(logits)
-    eps = torch.finfo(probs.dtype).eps
-    probs = probs.clamp(min=eps, max=1.0 - eps)
-    return -(probs * probs.log() + (1.0 - probs) * (1.0 - probs).log())
+def softmax_entropy(logits):
+    """多クラス logits からカテゴリカルエントロピーを計算する。"""
+    probs = torch.softmax(logits, dim=1)
+    return -(probs * torch.log(probs.clamp_min(1e-12))).sum(dim=1)
 
 
 @torch.enable_grad()
@@ -59,7 +56,7 @@ def forward_and_adapt(x, model, optimizer):
     if isinstance(outputs, tuple):
         outputs, _ = outputs
 
-    loss = binary_entropy_from_logits(outputs).mean()
+    loss = softmax_entropy(outputs).mean()
     loss.backward()
     optimizer.step()
     optimizer.zero_grad()

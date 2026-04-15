@@ -1,8 +1,8 @@
 """WESAD データセットの読み込みと前処理。
 
 WESAD の胸部センサ信号を被験者ごとに読み込み、固定長の時系列窓へ分割する。
-このファイルでは、元ラベルをストレス二値分類へ写像し、被験者ごとの冒頭窓を
-基準に標準化したうえで PyTorch の `DataLoader` を作成する。
+このファイルでは、元ラベルを 3 クラス（中性・ストレス・楽しさ）へ写像し、
+被験者ごとの冒頭窓を基準に標準化したうえで PyTorch の `DataLoader` を作成する。
 """
 
 import os
@@ -14,7 +14,7 @@ from sklearn.preprocessing import StandardScaler
 from torch.utils.data import DataLoader, TensorDataset
 
 
-LABEL_MAPPING = {1: 0, 2: 1, 3: 0, 4: 0}
+LABEL_MAPPING = {1: 0, 2: 1, 3: 2}
 
 
 def get_window(chest, label_arr, start, end, window_size):
@@ -68,11 +68,11 @@ def segment_data_raw(data_dict, window_size):
     return np.array(x_data), np.array(y_data)
 
 
-def filter_map_labels_binary(x_data, y_data):
-    """WESAD の元ラベルをストレス二値分類のラベルへ変換する。
+def filter_map_labels(x_data, y_data):
+    """WESAD の元ラベルを 3 クラスへ変換する。
 
-    使用するラベルは 1, 2, 3, 4 のみとし、1, 3, 4 を非ストレス `0`、
-    2 をストレス `1` として扱う。
+    使用するラベルは 1 (baseline→0), 2 (stress→1), 3 (amusement→2) のみ。
+    ラベル 0, 4, 6, 7 は除外する。
     """
     valid = np.isin(y_data, list(LABEL_MAPPING.keys()))
     x_data, y_data = x_data[valid], y_data[valid]
@@ -147,7 +147,7 @@ def preprocess_subject(args, subject_id):
     if x_sub.size == 0:
         raise ValueError(f"No WESAD windows were loaded for subject: {subject_id}")
 
-    x_sub, y_sub = filter_map_labels_binary(x_sub, y_sub)
+    x_sub, y_sub = filter_map_labels(x_sub, y_sub)
     # StandardScaler は 2 次元入力を受け取るため、窓とチャンネルを一度 flatten する。
     flat = x_sub.reshape(x_sub.shape[0], -1)
     scaler = StandardScaler()
@@ -218,7 +218,7 @@ def prepare_tensors(x_data, y_data):
     `(batch, channel, time)` を要求するため、ここで軸を入れ替える。
     """
     x_tensor = torch.from_numpy(np.transpose(x_data, (0, 2, 1))).float()
-    y_tensor = torch.from_numpy(y_data.astype(np.float32))
+    y_tensor = torch.from_numpy(y_data.astype(np.int64))
     return x_tensor, y_tensor
 
 

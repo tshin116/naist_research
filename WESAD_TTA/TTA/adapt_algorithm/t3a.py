@@ -7,16 +7,14 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from TTA.adapt_algorithm.common import (
-    binary_classifier_weights,
-    binary_logits_to_two_class,
+    classifier_weights,
     forward_with_features,
     softmax_entropy,
-    two_class_to_binary_logits,
 )
 
 
 class t3a(nn.Module):
-    """Test-Time Classifier Adjustment を WESAD の二値 feature 空間で行う。"""
+    """Test-Time Classifier Adjustment を WESAD の feature 空間で行う。"""
 
     def __init__(self, args, model, optimizer=None, steps=1, episodic=False):
         super().__init__()
@@ -25,12 +23,12 @@ class t3a(nn.Module):
         self.optimizer = optimizer
         self.steps = steps
         self.episodic = episodic
-        self.num_classes = getattr(args, "num_classes", 2)
+        self.num_classes = getattr(args, "num_classes", 3)
         self.filter_K = getattr(args, "filter_K", 16)
         self.model.eval()
         self.model.requires_grad_(False)
 
-        weights, bias = binary_classifier_weights(model)
+        weights, bias = classifier_weights(model)
         self.register_buffer("warmup_supports", weights.detach().clone())
         warmup_logits = weights @ weights.T
         if bias is not None:
@@ -61,9 +59,8 @@ class t3a(nn.Module):
 @torch.no_grad()
 def forward_and_adapt(self, x, model):
     logits, feature = forward_with_features(model, x)
-    two_class_logits = binary_logits_to_two_class(logits)
-    yhat = F.one_hot(two_class_logits.argmax(1), self.num_classes).float()
-    ent = softmax_entropy(two_class_logits)
+    yhat = F.one_hot(logits.argmax(1), self.num_classes).float()
+    ent = softmax_entropy(logits)
 
     self.supports = self.supports.to(feature.device)
     self.labels = self.labels.to(feature.device)
@@ -76,7 +73,7 @@ def forward_and_adapt(self, x, model):
     supports = F.normalize(supports, dim=1)
     weights = supports.T @ labels
     adjusted_logits = feature @ F.normalize(weights, dim=0)
-    return two_class_to_binary_logits(adjusted_logits)
+    return adjusted_logits
 
 
 def select_supports(self):

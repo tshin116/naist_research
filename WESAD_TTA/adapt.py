@@ -57,7 +57,7 @@ def main():
     base_model.load_state_dict(checkpoint["model_state_dict"], strict=True)
     train_subjects = checkpoint.get("train_subjects", [])
 
-    criterion = nn.BCEWithLogitsLoss()
+    criterion = nn.CrossEntropyLoss()
     # source_metrics は、Tent を適用する前の通常推論の基準値として残す。
     source_metrics = evaluate_model(base_model, target_loader, device, criterion=criterion)
 
@@ -74,12 +74,14 @@ def main():
         "train_subjects": train_subjects,
         "adaption": args.adaption,
         "source_accuracy": source_metrics["accuracy"],
-        "source_f1_non_stress": source_metrics["f1_non_stress"],
+        "source_f1_neutral": source_metrics["f1_neutral"],
         "source_f1_stress": source_metrics["f1_stress"],
+        "source_f1_amusement": source_metrics["f1_amusement"],
         "source_mean_f1": source_metrics["mean_f1"],
         "adapt_accuracy": adapt_metrics["accuracy"],
-        "adapt_f1_non_stress": adapt_metrics["f1_non_stress"],
+        "adapt_f1_neutral": adapt_metrics["f1_neutral"],
         "adapt_f1_stress": adapt_metrics["f1_stress"],
+        "adapt_f1_amusement": adapt_metrics["f1_amusement"],
         "adapt_mean_f1": adapt_metrics["mean_f1"],
     }
 

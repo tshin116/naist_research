@@ -1,0 +1,7 @@
+# 改善版 Source: patience=7, max_epochs=50, ckpt_improved に保存。
+adaption: source
+max_epochs: 50
+learning_rate: 0.0005
+early_stopping_patience: 7
+save_model: true
+resume: ./ckpt_improved

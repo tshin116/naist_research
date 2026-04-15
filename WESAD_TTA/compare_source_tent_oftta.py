@@ -29,7 +29,7 @@ from TTA.setup import get_adaptation
 from utils import get_device, get_model, get_target_dataset, set_seed
 
 
-METHODS = ["source", "tent", "oftta"]
+METHODS = ["source", "tent", "ema_tent", "oftta"]
 
 
 def parse_args():
@@ -41,6 +41,8 @@ def parse_args():
     parser.add_argument("--subjects", nargs="*", default=None)
     parser.add_argument("--device", type=str, default=None)
     parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument("--shuffle_test", action="store_true", default=False,
+                        help="Shuffle test DataLoader to break temporal block structure.")
     return parser.parse_args()
 
 
@@ -58,6 +60,8 @@ def build_args(cli_args, method, subject):
         cfg["device"] = cli_args.device
     if cli_args.seed is not None:
         cfg["seed"] = cli_args.seed
+    if cli_args.shuffle_test:
+        cfg["target_shuffle"] = True
     return SimpleNamespace(**cfg)
 
 
@@ -92,8 +96,9 @@ def evaluate_method(args, target_loader, device, criterion):
         metrics = evaluate_model(adapted_model, target_loader, device, criterion=criterion, adapt=True)
     return {
         "accuracy": metrics["accuracy"],
-        "f1_non_stress": metrics["f1_non_stress"],
+        "f1_neutral": metrics["f1_neutral"],
         "f1_stress": metrics["f1_stress"],
+        "f1_amusement": metrics["f1_amusement"],
         "mean_f1": metrics["mean_f1"],
     }
 
@@ -136,16 +141,19 @@ def save_metric_barplot(df, metric_suffix, ylabel, title, output_path):
     subject_df = df[~df["Subject"].isin(["Average", "Std"])].copy()
     subjects = subject_df["Subject"].tolist()
     x = np.arange(len(subjects))
-    width = 0.26
+    n_methods = 4
+    width = 0.2
     series = [
         ("Source", f"Source_{metric_suffix}", "#4C78A8"),
         ("Tent", f"Tent_{metric_suffix}", "#F58518"),
+        ("EMA-TENT", f"EmaTent_{metric_suffix}", "#E45756"),
         ("OFTTA", f"OFTTA_{metric_suffix}", "#54A24B"),
     ]
 
-    fig, ax = plt.subplots(figsize=(max(12, len(subjects) * 0.7), 5.5))
+    fig, ax = plt.subplots(figsize=(max(14, len(subjects) * 0.8), 5.5))
     for idx, (label, column, color) in enumerate(series):
-        ax.bar(x + (idx - 1) * width, subject_df[column].to_numpy(), width, label=label, color=color)
+        offset = (idx - (n_methods - 1) / 2) * width
+        ax.bar(x + offset, subject_df[column].to_numpy(), width, label=label, color=color)
 
     ax.set_title(title)
     ax.set_ylabel(ylabel)
@@ -167,16 +175,20 @@ def save_average_barplot(df, output_path):
         ("Accuracy", "Acc"),
         ("Mean F1", "MeanF1"),
         ("F1 Stress", "F1_1"),
+        ("F1 Amusement", "F1_2"),
     ]
-    methods = ["Source", "Tent", "OFTTA"]
+    methods = ["Source", "Tent", "EmaTent", "OFTTA"]
+    method_labels = {"Source": "Source", "Tent": "Tent", "EmaTent": "EMA-TENT", "OFTTA": "OFTTA"}
     x = np.arange(len(metrics))
-    width = 0.26
-    colors = {"Source": "#4C78A8", "Tent": "#F58518", "OFTTA": "#54A24B"}
+    width = 0.2
+    colors = {"Source": "#4C78A8", "Tent": "#F58518", "EmaTent": "#E45756", "OFTTA": "#54A24B"}
 
-    fig, ax = plt.subplots(figsize=(8, 5.5))
+    n_methods = len(methods)
+    fig, ax = plt.subplots(figsize=(10, 5.5))
     for idx, method in enumerate(methods):
         values = [avg[f"{method}_{suffix}"] for _, suffix in metrics]
-        ax.bar(x + (idx - 1) * width, values, width, label=method, color=colors[method])
+        offset = (idx - (n_methods - 1) / 2) * width
+        ax.bar(x + offset, values, width, label=method_labels[method], color=colors[method])
 
     ax.set_title("Average Performance Across Subjects")
     ax.set_ylabel("Score")
@@ -202,7 +214,7 @@ def main():
     base_args = build_args(cli_args, "source", "S2")
     set_seed(base_args.seed)
     device = get_device(base_args.device)
-    criterion = nn.BCEWithLogitsLoss()
+    criterion = nn.CrossEntropyLoss()
     subjects = resolve_subjects(cli_args)
     out_dir = make_output_dir(base_args)
 
@@ -215,16 +227,22 @@ def main():
 
         for method in METHODS:
             method_args = build_args(cli_args, method, subject)
+            if cli_args.shuffle_test:
+                set_seed(base_args.seed)
+                target_loader = get_target_dataset(target_args)
             metrics = evaluate_method(method_args, target_loader, device, criterion)
-            prefix = method.capitalize() if method != "oftta" else "OFTTA"
+            name_map = {"oftta": "OFTTA", "ema_tent": "EmaTent"}
+            prefix = name_map.get(method, method.capitalize())
             row[f"{prefix}_Acc"] = metrics["accuracy"]
-            row[f"{prefix}_F1_0"] = metrics["f1_non_stress"]
+            row[f"{prefix}_F1_0"] = metrics["f1_neutral"]
             row[f"{prefix}_F1_1"] = metrics["f1_stress"]
+            row[f"{prefix}_F1_2"] = metrics["f1_amusement"]
             row[f"{prefix}_MeanF1"] = metrics["mean_f1"]
             print(
                 f"  {prefix}: Acc={metrics['accuracy']:.4f}, "
-                f"F1(0)={metrics['f1_non_stress']:.4f}, "
+                f"F1(0)={metrics['f1_neutral']:.4f}, "
                 f"F1(1)={metrics['f1_stress']:.4f}, "
+                f"F1(2)={metrics['f1_amusement']:.4f}, "
                 f"MeanF1={metrics['mean_f1']:.4f}"
             )
         rows.append(row)
@@ -275,6 +293,14 @@ def main():
         "Accuracy",
         "Source vs Tent vs OFTTA: Accuracy by Subject",
         accuracy_plot_path,
+    )
+    amusement_f1_plot_path = os.path.join(out_dir, "source_tent_oftta_amusement_f1.png")
+    save_metric_barplot(
+        summary_df,
+        "F1_2",
+        "F1 Amusement",
+        "Source vs Tent vs OFTTA: Amusement-class F1 by Subject",
+        amusement_f1_plot_path,
     )
     save_average_barplot(summary_df, average_plot_path)
 

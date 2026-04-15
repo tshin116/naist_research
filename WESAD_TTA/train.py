@@ -19,19 +19,17 @@ from sklearn.utils import shuffle
 
 from config import parse_args
 from data_processing.wesad import load_data_per_subject, make_loader, stack_subjects
-from metrics import compute_pos_weight, evaluate_model, format_confusion_matrix
+from metrics import evaluate_model, format_confusion_matrix
 from utils import get_device, get_model, set_seed
 
 
-def fit_model(model, train_loader, val_loader, args, device, pos_weight=None, patience=None):
+def fit_model(model, train_loader, val_loader, args, device, patience=None):
     """1 つのモデルを指定 epoch 数だけ学習する。
 
     `val_loader` がある場合は検証 loss が最も小さい重みを保持する。
     `patience` が指定されていれば、検証 loss の改善が止まった時点で早期終了する。
     """
-    if pos_weight is not None:
-        pos_weight = pos_weight.to(device)
-    criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+    criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
 
     history = {"loss": [], "accuracy": []}
@@ -62,7 +60,7 @@ def fit_model(model, train_loader, val_loader, args, device, pos_weight=None, pa
 
             batch_size = y_batch.size(0)
             total_loss += loss.item() * batch_size
-            predictions = (torch.sigmoid(logits) > 0.5).float()
+            predictions = logits.argmax(dim=1)
             total_correct += int((predictions == y_batch).sum().item())
             total_samples += batch_size
 
@@ -111,7 +109,6 @@ def train_with_subject_validation(subjects_data, train_subjects, val_subject, ar
         val_loader,
         args,
         device,
-        pos_weight=compute_pos_weight(y_train),
         patience=args.early_stopping_patience,
     )
     val_metrics = evaluate_model(model, val_loader, device, criterion=criterion)
@@ -120,9 +117,9 @@ def train_with_subject_validation(subjects_data, train_subjects, val_subject, ar
         "train_subjects": train_subjects,
         "val_loss": val_metrics["loss"],
         "val_accuracy": val_metrics["accuracy"],
-        "val_f1": val_metrics["f1"],
-        "val_f1_non_stress": val_metrics["f1_non_stress"],
+        "val_f1_neutral": val_metrics["f1_neutral"],
         "val_f1_stress": val_metrics["f1_stress"],
+        "val_f1_amusement": val_metrics["f1_amusement"],
         "val_mean_f1": val_metrics["mean_f1"],
         "best_epoch": int(best_epoch),
         "history": history,
@@ -145,8 +142,9 @@ def run_inner_loso_cv(subjects_data, inner_subjects, args, device):
             f"  [Inner CV] {val_subject} - "
             f"Val Loss: {fold_result['val_loss']:.4f}, "
             f"Val Acc: {fold_result['val_accuracy']:.4f}, "
-            f"Val F1(0): {fold_result['val_f1_non_stress']:.4f}, "
+            f"Val F1(0): {fold_result['val_f1_neutral']:.4f}, "
             f"Val F1(1): {fold_result['val_f1_stress']:.4f}, "
+            f"Val F1(2): {fold_result['val_f1_amusement']:.4f}, "
             f"Val Mean F1: {fold_result['val_mean_f1']:.4f}, "
             f"Best Epoch: {fold_result['best_epoch']}"
         )
@@ -162,9 +160,9 @@ def run_inner_loso_cv(subjects_data, inner_subjects, args, device):
         "selected_epochs": selected_epochs,
         "avg_val_loss": float(np.mean([result["val_loss"] for result in inner_results])),
         "avg_val_accuracy": float(np.mean([result["val_accuracy"] for result in inner_results])),
-        "avg_val_f1": float(np.mean([result["val_f1"] for result in inner_results])),
-        "avg_val_f1_non_stress": float(np.mean([result["val_f1_non_stress"] for result in inner_results])),
+        "avg_val_f1_neutral": float(np.mean([result["val_f1_neutral"] for result in inner_results])),
         "avg_val_f1_stress": float(np.mean([result["val_f1_stress"] for result in inner_results])),
+        "avg_val_f1_amusement": float(np.mean([result["val_f1_amusement"] for result in inner_results])),
         "avg_val_mean_f1": float(np.mean([result["val_mean_f1"] for result in inner_results])),
         "folds": inner_results,
     }
@@ -185,7 +183,6 @@ def train_final_model(subjects_data, train_subjects, selected_epochs, args, devi
         val_loader=None,
         args=run_args,
         device=device,
-        pos_weight=compute_pos_weight(y_train),
         patience=None,
     )
     return model, history, criterion
@@ -216,8 +213,9 @@ def save_loso_checkpoint(args, model, test_subject, train_subjects, selected_epo
             "num_channels": args.num_channels,
             "metrics": {
                 "accuracy": test_metrics["accuracy"],
-                "f1_non_stress": test_metrics["f1_non_stress"],
+                "f1_neutral": test_metrics["f1_neutral"],
                 "f1_stress": test_metrics["f1_stress"],
+                "f1_amusement": test_metrics["f1_amusement"],
                 "mean_f1": test_metrics["mean_f1"],
                 "confusion_matrix": test_metrics["confusion_matrix"],
             },
@@ -275,8 +273,9 @@ def main():
         print(
             f"Subject {test_subject} - "
             f"Accuracy: {test_metrics['accuracy']:.4f}, "
-            f"F1(0): {test_metrics['f1_non_stress']:.4f}, "
+            f"F1(0): {test_metrics['f1_neutral']:.4f}, "
             f"F1(1): {test_metrics['f1_stress']:.4f}, "
+            f"F1(2): {test_metrics['f1_amusement']:.4f}, "
             f"Mean F1: {test_metrics['mean_f1']:.4f}"
         )
         print(format_confusion_matrix(test_metrics["confusion_matrix"]))
@@ -292,17 +291,15 @@ def main():
         )
         print(f"Checkpoint saved to {saved_path}")
 
+        cm = test_metrics["confusion_matrix"]
         loso_results.append(
             {
                 "Subject": test_subject,
                 "Accuracy": test_metrics["accuracy"],
-                "F1_Non_Stress_0": test_metrics["f1_non_stress"],
+                "F1_Neutral_0": test_metrics["f1_neutral"],
                 "F1_Stress_1": test_metrics["f1_stress"],
+                "F1_Amusement_2": test_metrics["f1_amusement"],
                 "Mean_F1": test_metrics["mean_f1"],
-                "TN": int(test_metrics["confusion_matrix"][0, 0]),
-                "FP": int(test_metrics["confusion_matrix"][0, 1]),
-                "FN": int(test_metrics["confusion_matrix"][1, 0]),
-                "TP": int(test_metrics["confusion_matrix"][1, 1]),
                 "Selected_Epochs": selected_epochs,
                 "Inner_CV_Avg_Mean_F1": inner_summary["avg_val_mean_f1"],
                 "Checkpoint": saved_path,

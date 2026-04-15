@@ -39,7 +39,7 @@ def get_model(args):
     `models/` に定義を追加し、この関数に分岐を足す。
     """
     if args.model == "cnn1d":
-        return StressCNN1D(num_channels=args.num_channels)
+        return StressCNN1D(num_channels=args.num_channels, num_classes=getattr(args, "num_classes", 3))
     raise ValueError(f"Unknown model: {args.model}")
 
 

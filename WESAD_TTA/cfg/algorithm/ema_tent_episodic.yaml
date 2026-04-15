@@ -1,0 +1,6 @@
+# EMA-TENT (episodic=True): バッチごとにモデルをリセットする設定。
+adaption: ema_tent
+tent_lr: 0.0001
+tent_steps: 1
+episodic: true
+ema_momentum: 0.9

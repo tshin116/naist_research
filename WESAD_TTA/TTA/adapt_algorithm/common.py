@@ -1,4 +1,4 @@
-"""WESAD の二値 1D-CNN TTA 実装で共有する関数。"""
+"""WESAD の 1D-CNN TTA 実装で共有する関数。"""
 
 from copy import deepcopy
 
@@ -7,45 +7,14 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-def binary_logits_to_two_class(logits):
-    """single-logit を 2 クラス logits に変換する。
-
-    `BCEWithLogitsLoss` の logit は `log p(y=1)/p(y=0)` を表すため、
-    `[-logit/2, logit/2]` とすれば softmax のクラス 1 確率が sigmoid(logit) と一致する。
-    """
-    if logits.ndim == 2 and logits.size(1) == 2:
-        return logits
-    logits = logits.view(-1)
-    return torch.stack([-0.5 * logits, 0.5 * logits], dim=1)
-
-
-def two_class_to_binary_logits(two_class_logits):
-    """2 クラス logits を single-logit に戻す。"""
-    if two_class_logits.ndim == 1:
-        return two_class_logits
-    return two_class_logits[:, 1] - two_class_logits[:, 0]
-
-
-def two_class_probs_to_binary_logits(two_class_probs):
-    """2 クラス確率を single-logit に変換する。"""
-    probs = two_class_probs.clamp_min(1e-12)
-    return torch.log(probs[:, 1]) - torch.log(probs[:, 0])
-
-
-def binary_entropy_from_logits(logits):
-    """single-logit または 2 クラス logits からサンプルごとの entropy を返す。"""
-    probs = torch.softmax(binary_logits_to_two_class(logits), dim=1)
-    return -(probs * torch.log(probs.clamp_min(1e-12))).sum(dim=1)
-
-
-def softmax_entropy(two_class_logits):
-    """2 クラス logits 用 entropy。"""
-    probs = torch.softmax(two_class_logits, dim=1)
+def softmax_entropy(logits):
+    """多クラス logits からサンプルごとの entropy を返す。"""
+    probs = torch.softmax(logits, dim=1)
     return -(probs * torch.log(probs.clamp_min(1e-12))).sum(dim=1)
 
 
 def split_model_output(output):
-    """モデル出力から single-logit と feature を取り出す。"""
+    """モデル出力から logits と feature を取り出す。"""
     if isinstance(output, tuple):
         logits, feature = output
         return logits, feature
@@ -73,20 +42,10 @@ def get_final_linear(model):
     raise ValueError("A final nn.Linear classifier is required for this adaptation.")
 
 
-def binary_classifier_weights(model):
-    """single-logit classifier から 2 クラス用の重みと bias を作る。"""
+def classifier_weights(model):
+    """分類層の重みと bias を返す。"""
     linear = get_final_linear(model)
-    weight = linear.weight
-    if weight.size(0) == 1:
-        pos_w = 0.5 * weight[0]
-        neg_w = -0.5 * weight[0]
-        if linear.bias is None:
-            pos_b = neg_b = torch.zeros((), device=weight.device, dtype=weight.dtype)
-        else:
-            pos_b = 0.5 * linear.bias[0]
-            neg_b = -0.5 * linear.bias[0]
-        return torch.stack([neg_w, pos_w], dim=0), torch.stack([neg_b, pos_b], dim=0)
-    return weight, linear.bias
+    return linear.weight.detach().clone(), linear.bias.detach().clone() if linear.bias is not None else None
 
 
 def collect_bn1d_params(model):
@@ -140,10 +99,9 @@ def safe_mean_loss(loss_values, device):
 
 def pseudo_label_loss(logits, confidence_threshold=0.9):
     """高信頼サンプルだけを使う pseudo-label loss。"""
-    two_class_logits = binary_logits_to_two_class(logits)
-    probs = torch.softmax(two_class_logits, dim=1)
+    probs = torch.softmax(logits, dim=1)
     confidence, pseudo = probs.max(dim=1)
     mask = confidence > confidence_threshold
     if mask.any():
-        return F.cross_entropy(two_class_logits[mask], pseudo[mask])
-    return torch.zeros((), device=two_class_logits.device, requires_grad=True)
+        return F.cross_entropy(logits[mask], pseudo[mask])
+    return torch.zeros((), device=logits.device, requires_grad=True)

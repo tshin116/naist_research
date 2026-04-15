@@ -5,4 +5,4 @@ target_domain: S2
 out_path: ./logs
 resume: ./ckpt
 seed: 42
-device: auto
+device: mps

@@ -1,7 +1,7 @@
-"""WESAD 二値分類で使う評価指標をまとめたモジュール。
+"""WESAD 3 クラス分類で使う評価指標をまとめたモジュール。
 
-この実験ではストレス検出の正例が少なくなりやすいため、accuracy だけでなく
-非ストレス、ストレスそれぞれの F1 と mean F1 を必ず記録する。
+中性 (0)・ストレス (1)・楽しさ (2) の 3 クラス分類に対応し、
+accuracy、クラスごとの F1、macro F1、混同行列を記録する。
 """
 
 import numpy as np
@@ -9,18 +9,7 @@ import torch
 import torch.nn as nn
 from sklearn.metrics import confusion_matrix, f1_score
 
-
-def compute_pos_weight(y_data):
-    """`BCEWithLogitsLoss` に渡す正例クラス重みを計算する。
-
-    ストレス窓が少ない fold でも正例を無視した学習になりにくいよう、
-    `negative_count / positive_count` を `pos_weight` として使う。
-    """
-    positive_count = int(np.sum(y_data == 1))
-    negative_count = int(np.sum(y_data == 0))
-    if positive_count == 0:
-        return None
-    return torch.tensor([negative_count / positive_count], dtype=torch.float32)
+CLASS_NAMES = ["neutral", "stress", "amusement"]
 
 
 def evaluate_model(model, data_loader, device, criterion=None, adapt=False):
@@ -30,14 +19,14 @@ def evaluate_model(model, data_loader, device, criterion=None, adapt=False):
     forward 中に backward が必要なため、`adapt=True` として勾配計算を有効にする。
     """
     if criterion is None:
-        criterion = nn.BCEWithLogitsLoss()
+        criterion = nn.CrossEntropyLoss()
 
     if not adapt:
         model.eval()
 
     total_loss = 0.0
     total_samples = 0
-    probabilities = []
+    all_logits = []
     labels = []
 
     grad_context = torch.enable_grad() if adapt else torch.no_grad()
@@ -52,34 +41,34 @@ def evaluate_model(model, data_loader, device, criterion=None, adapt=False):
             total_loss += loss.item() * batch_size
             total_samples += batch_size
 
-            probabilities.append(torch.sigmoid(logits).detach().cpu().numpy())
+            all_logits.append(logits.detach().cpu().numpy())
             labels.append(y_batch.detach().cpu().numpy())
 
     y_true = np.concatenate(labels)
-    y_prob = np.concatenate(probabilities)
-    y_pred = (y_prob > 0.5).astype(int)
-    f1_per_class = f1_score(y_true, y_pred, labels=[0, 1], average=None, zero_division=0)
-    conf_matrix = confusion_matrix(y_true, y_pred, labels=[0, 1])
+    logits_np = np.concatenate(all_logits)
+    y_pred = logits_np.argmax(axis=1)
+    f1_per_class = f1_score(y_true, y_pred, labels=[0, 1, 2], average=None, zero_division=0)
+    conf_matrix = confusion_matrix(y_true, y_pred, labels=[0, 1, 2])
     return {
         "loss": total_loss / max(total_samples, 1),
         "accuracy": float(np.mean(y_pred == y_true)),
-        "f1": float(f1_per_class[1]),
-        "f1_non_stress": float(f1_per_class[0]),
+        "f1_neutral": float(f1_per_class[0]),
         "f1_stress": float(f1_per_class[1]),
+        "f1_amusement": float(f1_per_class[2]),
         "mean_f1": float(np.mean(f1_per_class)),
         "confusion_matrix": conf_matrix,
         "y_true": y_true.astype(int),
-        "y_prob": y_prob,
         "y_pred": y_pred,
     }
 
 
 def format_confusion_matrix(conf_matrix):
-    """2 クラス混同行列をログで読みやすい文字列に整形する。"""
-    tn, fp, fn, tp = conf_matrix.ravel()
-    return (
-        "Confusion Matrix (rows=true, cols=pred)\n"
-        "              Pred 0   Pred 1\n"
-        f"True 0        {tn:6d}   {fp:6d}\n"
-        f"True 1        {fn:6d}   {tp:6d}"
-    )
+    """3 クラス混同行列をログで読みやすい文字列に整形する。"""
+    lines = [
+        "Confusion Matrix (rows=true, cols=pred)",
+        "                 Pred 0   Pred 1   Pred 2",
+    ]
+    for i, name in enumerate(CLASS_NAMES):
+        row = conf_matrix[i]
+        lines.append(f"True {i} ({name:>9})  {row[0]:6d}   {row[1]:6d}   {row[2]:6d}")
+    return "\n".join(lines)

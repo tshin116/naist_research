@@ -1,0 +1,5 @@
+# Tent (episodic=True): バッチごとにモデルをリセットする設定。
+adaption: tent
+tent_lr: 0.0001
+tent_steps: 1
+episodic: true

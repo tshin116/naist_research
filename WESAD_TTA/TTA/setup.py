@@ -2,7 +2,7 @@
 
 import torch
 
-from TTA.adapt_algorithm import norm, oftta, pl, sar, shot, t3a, tast, tast_bn, tent
+from TTA.adapt_algorithm import ema_tent, oftta, t3a, tent
 
 
 def setup_source(args, model):
@@ -19,51 +19,23 @@ def setup_tent(args, model):
     return tent.Tent(model, optimizer, steps=args.tent_steps, episodic=args.episodic)
 
 
-def setup_norm(args, model):
-    return norm.NORM(args, model)
-
-
-def setup_pl(args, model):
-    model = pl.configure_model(model)
-    params, _ = pl.collect_params(model)
-    optimizer = torch.optim.Adam(params, lr=args.tta_lr, betas=(0.9, 0.999), weight_decay=0.0)
-    return pl.PL(model=model, args=args, optimizer=optimizer, steps=args.tta_steps, episodic=args.episodic)
-
-
-def setup_shot(args, model):
-    model = shot.configure_model(model)
-    params, _ = shot.collect_params(model)
-    optimizer = torch.optim.Adam(params, lr=args.tta_lr, betas=(0.9, 0.999), weight_decay=0.0)
-    return shot.SHOT(model=model, args=args, optimizer=optimizer, steps=args.tta_steps, episodic=args.episodic)
-
-
-def setup_sar(args, model):
-    model = sar.configure_model(model)
-    params, _ = sar.collect_params(model)
-    optimizer = sar.SAM(params, torch.optim.SGD, lr=args.tta_lr, momentum=0.9)
-    return sar.SAR(model=model, args=args, optimizer=optimizer, steps=args.tta_steps, episodic=args.episodic)
-
-
 def setup_t3a(args, model):
     model = t3a.configure_model(model)
     return t3a.t3a(args=args, model=model, optimizer=None, steps=args.tta_steps, episodic=args.episodic)
 
 
+def setup_ema_tent(args, model):
+    """EMA-TENT 用に EmaBN1d を差し替え、γ/β を optimizer に登録する。"""
+    momentum = getattr(args, "ema_momentum", 0.9)
+    model = ema_tent.configure_model(model, momentum=momentum)
+    params, _ = ema_tent.collect_params(model)
+    optimizer = torch.optim.Adam(params, lr=args.tent_lr, betas=(0.9, 0.999), weight_decay=0.0)
+    return ema_tent.EmaTent(model, optimizer, steps=args.tent_steps, episodic=args.episodic)
+
+
 def setup_oftta(args, model):
     model = oftta.configure_model(model)
     return oftta.OFTTA(args=args, model=model, optimizer=None, steps=args.tta_steps, episodic=args.episodic)
-
-
-def setup_tast(args, model):
-    model = tast.configure_model(model)
-    return tast.TAST(args=args, model=model, optimizer=None, steps=args.tta_steps, episodic=args.episodic)
-
-
-def setup_tast_bn(args, model):
-    model = tast_bn.configure_model(model)
-    params, _ = tast_bn.collect_params(model)
-    optimizer = torch.optim.Adam(params, lr=args.tta_lr, betas=(0.9, 0.999), weight_decay=0.0)
-    return tast_bn.TAST_BN(args=args, model=model, optimizer=optimizer, steps=args.tta_steps, episodic=args.episodic)
 
 
 def get_adaptation(args, base_model):
@@ -72,20 +44,10 @@ def get_adaptation(args, base_model):
         return setup_source(args, base_model)
     if args.adaption == "tent":
         return setup_tent(args, base_model)
-    if args.adaption == "norm":
-        return setup_norm(args, base_model)
-    if args.adaption == "pl":
-        return setup_pl(args, base_model)
-    if args.adaption == "shot":
-        return setup_shot(args, base_model)
-    if args.adaption == "sar":
-        return setup_sar(args, base_model)
     if args.adaption == "t3a":
         return setup_t3a(args, base_model)
+    if args.adaption == "ema_tent":
+        return setup_ema_tent(args, base_model)
     if args.adaption == "oftta":
         return setup_oftta(args, base_model)
-    if args.adaption == "tast":
-        return setup_tast(args, base_model)
-    if args.adaption == "tast_bn":
-        return setup_tast_bn(args, base_model)
-    raise ValueError(f"Unknown adaptation: {args.adaption}")
+    raise ValueError(f"Unknown adaptation: {args.adaption}. Supported: source, tent, ema_tent, t3a, oftta")
