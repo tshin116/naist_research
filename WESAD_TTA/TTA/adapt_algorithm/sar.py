@@ -32,7 +32,10 @@ class SAR(nn.Module):
         self.optimizer = optimizer
         self.steps = steps
         self.episodic = episodic
-        self.margin_e0 = getattr(args, "sar_margin", 0.4 * math.log(getattr(args, "num_classes", 2)))
+        configured_margin = getattr(args, "sar_margin", None)
+        if configured_margin is None:
+            configured_margin = 0.4 * math.log(getattr(args, "num_classes", 2))
+        self.margin_e0 = configured_margin
         self.reset_constant_em = getattr(args, "sar_reset_constant", 0.2)
         self.label_mode = getattr(args, "label_mode", "binary")
         self.ema = None

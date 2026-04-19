@@ -159,6 +159,12 @@ Test-Time Adaptation の設定とアルゴリズム実装を置くディレク�
 - `scripts/wesad/compare_source_tent_oftta_wesad_3class.sh`
   3 分類 checkpoint `./ckpt_3class` を使い、Source、Tent、OFTTA の比較表とグラフを作成します。
 
+- `scripts/wesad/compare_source_tent_oftta_shuffle_wesad_3class.sh`
+  3 分類 checkpoint `./ckpt_3class` を使い、target loader を shuffle して Source、Tent、OFTTA を比較します。
+
+- `scripts/wesad/compare_source_tent_oftta_fixed_shuffle_wesad_3class.sh`
+  固定 epoch の 3 分類 checkpoint `./ckpt_fixed_3class` を使い、target loader を shuffle して比較します。
+
 ### `ckpt/`
 
 LOSO の各 fold で学習したモデルを保存するディレクトリです。保存形式は次のような階層です。
@@ -374,6 +380,8 @@ conda run -n wesad_env bash scripts/wesad/compare_source_tent_oftta_fixed_shuffl
 ### 3 分類 Source / Tent / OFTTA 比較
 
 3 分類 checkpoint `ckpt_3class/` を使って、Source、Tent、OFTTA を被験者ごとに比較します。
+3 分類の場合は CSV / Markdown に `F1_0`, `F1_1`, `F1_2`, `MeanF1` が出力され、
+グラフも Accuracy、Mean F1、Stress F1、Amusement F1 を保存します。
 
 ```bash
 cd /work/shinsaku-t/naist_reserch/WESAD_TTA
@@ -387,6 +395,22 @@ conda run -n wesad_env python compare_source_tent_oftta.py \
   --dataset_cfg ./cfg/dataset/wesad_3class.yaml \
   --resume ./ckpt_3class
 ```
+
+target loader を shuffle して 3 分類 TTA の batch composition 依存を調べる場合はこちらです。
+
+```bash
+conda run -n wesad_env bash scripts/wesad/compare_source_tent_oftta_shuffle_wesad_3class.sh
+```
+
+固定 epoch の 3 分類 checkpoint `ckpt_fixed_3class/` を使う場合はこちらです。
+
+```bash
+conda run -n wesad_env bash scripts/wesad/compare_source_tent_oftta_fixed_shuffle_wesad_3class.sh
+```
+
+内部では `cfg/dataset/wesad_3class_target_shuffle.yaml` を使います。これは `wesad_3class.yaml` と同じ
+3分類設定のまま、評価時の target loader だけ `target_shuffle: true` にした設定です。比較スクリプトは
+各手法の評価直前に同じ seed を設定し直すため、Tent と OFTTA は同じ shuffled batch 順序で比較されます。
 
 ## 注意点
 

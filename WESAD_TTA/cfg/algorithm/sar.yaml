@@ -3,5 +3,6 @@ adaption: sar
 tta_steps: 1
 tta_lr: 0.0001
 episodic: false
-sar_margin: 0.2772588722239781
+# null の場合は 0.4 * log(num_classes) を使う。2分類と3分類の両方で使える。
+sar_margin: null
 sar_reset_constant: 0.2

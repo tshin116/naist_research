@@ -142,6 +142,14 @@ def load_processed_subject(args, subject_id):
         return None
 
     with np.load(load_path, allow_pickle=False) as data:
+        expected_label_mode = getattr(args, "label_mode", "binary")
+        cached_label_mode = str(data["label_mode"].item()) if "label_mode" in data else None
+        if cached_label_mode != expected_label_mode:
+            raise ValueError(
+                f"Processed cache label_mode mismatch for {subject_id}: "
+                f"expected {expected_label_mode}, got {cached_label_mode}. "
+                f"Check processed_dir or rerun preprocess.py."
+            )
         x_data = data["X"].astype(np.float32)
         y_data = data["y"].astype(np.int64)
     return {"X": x_data, "y": y_data}

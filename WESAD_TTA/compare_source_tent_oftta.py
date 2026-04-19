@@ -174,13 +174,15 @@ def save_metric_barplot(df, metric_suffix, ylabel, title, output_path):
 
 
 def save_average_barplot(df, output_path):
-    """Average 行だけを使い、3 手法の平均 Mean F1 / F1(Stress) / Accuracy を保存する。"""
+    """Average 行だけを使い、3 手法の主要指標を保存する。"""
     avg = df[df["Subject"] == "Average"].iloc[0]
     metrics = [
         ("Accuracy", "Acc"),
         ("Mean F1", "MeanF1"),
         ("F1 Stress", "F1_1"),
     ]
+    if "Source_F1_2" in df.columns:
+        metrics.append(("F1 Amusement", "F1_2"))
     methods = ["Source", "Tent", "OFTTA"]
     x = np.arange(len(metrics))
     width = 0.26
@@ -228,6 +230,9 @@ def main():
 
         for method in METHODS:
             method_args = build_args(cli_args, method, subject)
+            # target_shuffle=True の比較では DataLoader の反復ごとに順序が変わる。
+            # 各手法が同じ shuffled batch 列を見るよう、評価直前に seed を戻す。
+            set_seed(method_args.seed)
             metrics = evaluate_method(method_args, target_loader, device, criterion)
             prefix = method.capitalize() if method != "oftta" else "OFTTA"
             row[f"{prefix}_Acc"] = metrics["accuracy"]
@@ -258,6 +263,7 @@ def main():
     md_path = os.path.join(out_dir, "source_tent_oftta_comparison.md")
     mean_f1_plot_path = os.path.join(out_dir, "source_tent_oftta_mean_f1.png")
     stress_f1_plot_path = os.path.join(out_dir, "source_tent_oftta_stress_f1.png")
+    amusement_f1_plot_path = os.path.join(out_dir, "source_tent_oftta_amusement_f1.png")
     accuracy_plot_path = os.path.join(out_dir, "source_tent_oftta_accuracy.png")
     average_plot_path = os.path.join(out_dir, "source_tent_oftta_average.png")
     summary_df.to_csv(csv_path, index=False)
@@ -285,6 +291,14 @@ def main():
         "Source vs Tent vs OFTTA: Stress-class F1 by Subject",
         stress_f1_plot_path,
     )
+    if "Source_F1_2" in summary_df.columns:
+        save_metric_barplot(
+            summary_df,
+            "F1_2",
+            "F1 Amusement",
+            "Source vs Tent vs OFTTA: Amusement-class F1 by Subject",
+            amusement_f1_plot_path,
+        )
     save_metric_barplot(
         summary_df,
         "Acc",
@@ -311,6 +325,8 @@ def main():
     print(f"Markdown saved to: {md_path}")
     print(f"Mean F1 plot saved to: {mean_f1_plot_path}")
     print(f"Stress F1 plot saved to: {stress_f1_plot_path}")
+    if "Source_F1_2" in summary_df.columns:
+        print(f"Amusement F1 plot saved to: {amusement_f1_plot_path}")
     print(f"Accuracy plot saved to: {accuracy_plot_path}")
     print(f"Average plot saved to: {average_plot_path}")
 
