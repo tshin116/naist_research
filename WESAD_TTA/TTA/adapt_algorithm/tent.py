@@ -25,7 +25,7 @@ class Tent(nn.Module):
         self.model_state, self.optimizer_state = copy_model_and_optimizer(self.model, self.optimizer)
 
     def forward(self, x):
-        """入力バッチで `steps` 回 Tent 更新を行い、その logits を返す。"""
+        """入力バッチで `steps` 回 Tent 更新を行い、更新前 forward の logits を返す。"""
         if self.episodic:
             self.reset()
 
@@ -41,7 +41,7 @@ class Tent(nn.Module):
 
 @torch.enable_grad()
 def forward_and_adapt(x, model, optimizer, label_mode):
-    """1 バッチに対して forward、エントロピー計算、BN パラメータ更新を行う。"""
+    """元の Tent 実装に合わせ、forward 出力を返した後続バッチへ更新を反映する。"""
     model.train()
 
     outputs = model(x)
@@ -53,11 +53,6 @@ def forward_and_adapt(x, model, optimizer, label_mode):
     loss.backward()
     optimizer.step()
     optimizer.zero_grad()
-
-    with torch.no_grad():
-        outputs = model(x)
-        if isinstance(outputs, tuple):
-            outputs, _ = outputs
 
     return outputs
 

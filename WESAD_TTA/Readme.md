@@ -423,3 +423,5 @@ conda run -n wesad_env bash scripts/wesad/compare_source_tent_oftta_fixed_shuffl
 - Tent は教師ラベルを使わずにテストバッチの予測エントロピーを下げます。そのため通常の評価と異なり、
   推論中も勾配計算を有効にします。
 - この実装の Tent は `BatchNorm1d` の affine パラメータのみを更新します。Conv1d や Linear の重みは更新しません。
+- Tent は元実装に合わせ、各 batch の評価には更新前 forward の出力を使います。その batch の entropy による
+  更新は次の batch 以降へ反映されます。
