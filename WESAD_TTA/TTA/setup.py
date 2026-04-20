@@ -2,7 +2,7 @@
 
 import torch
 
-from TTA.adapt_algorithm import norm, oftta, pl, sar, shot, t3a, tast, tast_bn, tent
+from TTA.adapt_algorithm import mem_oftta, norm, oftta, pl, sar, shot, t3a, tast, tast_bn, tent
 
 
 def setup_source(args, model):
@@ -60,6 +60,11 @@ def setup_oftta(args, model):
     return oftta.OFTTA(args=args, model=model, optimizer=None, steps=args.tta_steps, episodic=args.episodic)
 
 
+def setup_mem_oftta(args, model):
+    model = mem_oftta.configure_model(model)
+    return mem_oftta.MemOFTTA(args=args, model=model, optimizer=None, steps=args.tta_steps, episodic=args.episodic)
+
+
 def setup_tast(args, model):
     model = tast.configure_model(model)
     return tast.TAST(args=args, model=model, optimizer=None, steps=args.tta_steps, episodic=args.episodic)
@@ -90,6 +95,8 @@ def get_adaptation(args, base_model):
         return setup_t3a(args, base_model)
     if args.adaption == "oftta":
         return setup_oftta(args, base_model)
+    if args.adaption == "mem_oftta":
+        return setup_mem_oftta(args, base_model)
     if args.adaption == "tast":
         return setup_tast(args, base_model)
     if args.adaption == "tast_bn":

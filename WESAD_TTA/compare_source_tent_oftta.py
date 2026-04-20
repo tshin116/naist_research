@@ -29,6 +29,22 @@ from utils import get_device, get_model, get_target_dataset, set_seed
 
 
 METHODS = ["source", "tent", "oftta"]
+METHOD_LABELS = {
+    "source": "Source",
+    "tent": "Tent",
+    "oftta": "OFTTA",
+    "mem_oftta": "MemOFTTA",
+}
+PLOT_COLORS = [
+    "#4C78A8",
+    "#F58518",
+    "#54A24B",
+    "#B279A2",
+    "#72B7B2",
+    "#E45756",
+    "#FF9DA6",
+    "#9D755D",
+]
 
 
 def parse_args():
@@ -38,9 +54,14 @@ def parse_args():
     parser.add_argument("--out_path", type=str, default="./logs")
     parser.add_argument("--resume", type=str, default=None)
     parser.add_argument("--subjects", nargs="*", default=None)
+    parser.add_argument("--methods", nargs="+", default=None)
     parser.add_argument("--device", type=str, default=None)
     parser.add_argument("--seed", type=int, default=None)
     return parser.parse_args()
+
+
+def method_label(method):
+    return METHOD_LABELS.get(method, method.replace("_", " ").title().replace(" ", ""))
 
 
 def build_args(cli_args, method, subject):
@@ -144,21 +165,27 @@ def dataframe_to_markdown(df):
     return "\n".join([header_line, sep_line] + row_lines)
 
 
-def save_metric_barplot(df, metric_suffix, ylabel, title, output_path):
+def save_metric_barplot(df, metric_suffix, ylabel, title, output_path, methods):
     """被験者ごとの Source/Tent/OFTTA 比較棒グラフを保存する。"""
     subject_df = df[~df["Subject"].isin(["Average", "Std"])].copy()
     subjects = subject_df["Subject"].tolist()
     x = np.arange(len(subjects))
-    width = 0.26
-    series = [
-        ("Source", f"Source_{metric_suffix}", "#4C78A8"),
-        ("Tent", f"Tent_{metric_suffix}", "#F58518"),
-        ("OFTTA", f"OFTTA_{metric_suffix}", "#54A24B"),
-    ]
+    labels = [method_label(method) for method in methods]
+    width = min(0.8 / max(len(labels), 1), 0.26)
+    offset_center = (len(labels) - 1) / 2
 
     fig, ax = plt.subplots(figsize=(max(12, len(subjects) * 0.7), 5.5))
-    for idx, (label, column, color) in enumerate(series):
-        ax.bar(x + (idx - 1) * width, subject_df[column].to_numpy(), width, label=label, color=color)
+    for idx, label in enumerate(labels):
+        column = f"{label}_{metric_suffix}"
+        if column not in subject_df.columns:
+            continue
+        ax.bar(
+            x + (idx - offset_center) * width,
+            subject_df[column].to_numpy(),
+            width,
+            label=label,
+            color=PLOT_COLORS[idx % len(PLOT_COLORS)],
+        )
 
     ax.set_title(title)
     ax.set_ylabel(ylabel)
@@ -173,7 +200,7 @@ def save_metric_barplot(df, metric_suffix, ylabel, title, output_path):
     plt.close(fig)
 
 
-def save_average_barplot(df, output_path):
+def save_average_barplot(df, output_path, methods):
     """Average 行だけを使い、3 手法の主要指標を保存する。"""
     avg = df[df["Subject"] == "Average"].iloc[0]
     metrics = [
@@ -183,15 +210,21 @@ def save_average_barplot(df, output_path):
     ]
     if "Source_F1_2" in df.columns:
         metrics.append(("F1 Amusement", "F1_2"))
-    methods = ["Source", "Tent", "OFTTA"]
+    labels = [method_label(method) for method in methods]
     x = np.arange(len(metrics))
-    width = 0.26
-    colors = {"Source": "#4C78A8", "Tent": "#F58518", "OFTTA": "#54A24B"}
+    width = min(0.8 / max(len(labels), 1), 0.26)
+    offset_center = (len(labels) - 1) / 2
 
     fig, ax = plt.subplots(figsize=(8, 5.5))
-    for idx, method in enumerate(methods):
-        values = [avg[f"{method}_{suffix}"] for _, suffix in metrics]
-        ax.bar(x + (idx - 1) * width, values, width, label=method, color=colors[method])
+    for idx, label in enumerate(labels):
+        values = [avg[f"{label}_{suffix}"] for _, suffix in metrics]
+        ax.bar(
+            x + (idx - offset_center) * width,
+            values,
+            width,
+            label=label,
+            color=PLOT_COLORS[idx % len(PLOT_COLORS)],
+        )
 
     ax.set_title("Average Performance Across Subjects")
     ax.set_ylabel("Score")
@@ -214,6 +247,7 @@ def make_output_dir(args):
 
 def main():
     cli_args = parse_args()
+    methods = cli_args.methods if cli_args.methods is not None else METHODS
     base_args = build_args(cli_args, "source", "S2")
     set_seed(base_args.seed)
     device = get_device(base_args.device)
@@ -228,13 +262,13 @@ def main():
         target_loader = get_target_dataset(target_args)
         row = {"Subject": subject}
 
-        for method in METHODS:
+        for method in methods:
             method_args = build_args(cli_args, method, subject)
             # target_shuffle=True の比較では DataLoader の反復ごとに順序が変わる。
             # 各手法が同じ shuffled batch 列を見るよう、評価直前に seed を戻す。
             set_seed(method_args.seed)
             metrics = evaluate_method(method_args, target_loader, device, criterion)
-            prefix = method.capitalize() if method != "oftta" else "OFTTA"
+            prefix = method_label(method)
             row[f"{prefix}_Acc"] = metrics["accuracy"]
             row[f"{prefix}_F1_0"] = metrics["f1_non_stress"]
             row[f"{prefix}_F1_1"] = metrics["f1_stress"]
@@ -283,6 +317,7 @@ def main():
         "Mean F1",
         "Source vs Tent vs OFTTA: Mean F1 by Subject",
         mean_f1_plot_path,
+        methods,
     )
     save_metric_barplot(
         summary_df,
@@ -290,6 +325,7 @@ def main():
         "F1 Stress",
         "Source vs Tent vs OFTTA: Stress-class F1 by Subject",
         stress_f1_plot_path,
+        methods,
     )
     if "Source_F1_2" in summary_df.columns:
         save_metric_barplot(
@@ -298,6 +334,7 @@ def main():
             "F1 Amusement",
             "Source vs Tent vs OFTTA: Amusement-class F1 by Subject",
             amusement_f1_plot_path,
+            methods,
         )
     save_metric_barplot(
         summary_df,
@@ -305,14 +342,15 @@ def main():
         "Accuracy",
         "Source vs Tent vs OFTTA: Accuracy by Subject",
         accuracy_plot_path,
+        methods,
     )
-    save_average_barplot(summary_df, average_plot_path)
+    save_average_barplot(summary_df, average_plot_path, methods)
 
     with open(os.path.join(out_dir, "config.yaml"), "w", encoding="utf-8") as handle:
         yaml.safe_dump(
             {
                 "subjects": subjects,
-                "methods": METHODS,
+                "methods": methods,
                 "default_cfg": cli_args.default_cfg,
                 "dataset_cfg": cli_args.dataset_cfg,
                 "resume": base_args.resume,

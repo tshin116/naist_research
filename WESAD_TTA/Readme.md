@@ -67,9 +67,11 @@ YAML として分離しています。
   Tent 適応に使う設定です。Tent の学習率、1 バッチあたりの更新回数、episodic adaptation の有無を定義します。
 
 - `cfg/algorithm/*.yaml`
-  `norm`, `pl`, `shot`, `sar`, `t3a`, `tast`, `tast_bn`, `oftta` など、各 TTA 手法の設定です。
+  `norm`, `pl`, `shot`, `sar`, `t3a`, `tast`, `tast_bn`, `oftta`, `mem_oftta` など、各 TTA 手法の設定です。
   OFTTA 由来の 2D-CNN 前提の設定を、WESAD の 1D-CNN 用に分けています。
   分類クラス数は dataset config の `label_mode` と `num_classes` で切り替えます。
+  `mem_oftta.yaml` は OFTTA をベースに、class-balanced memory、source prototype anchor、
+  batch bias gate、短期 memory reset を追加した実験用設定です。既存の `oftta.yaml` は変更しません。
 
 ### `data_processing/`
 
@@ -109,10 +111,17 @@ Test-Time Adaptation の設定とアルゴリズム実装を置くディレク�
 
 - `TTA/adapt_algorithm/*.py`
   OFTTA ディレクトリにある TTA 手法を、WESAD の 1D-CNN に合わせて移植した実装です。
-  追加済みの手法は `norm`, `pl`, `shot`, `sar`, `t3a`, `tast`, `tast_bn`, `oftta` です。
+  追加済みの手法は `norm`, `pl`, `shot`, `sar`, `t3a`, `tast`, `tast_bn`, `oftta`, `mem_oftta` です。
   `BatchNorm2d` 前提の処理は `BatchNorm1d` に変更しています。二値分類では single-logit を内部で
   2 クラス logits に変換し、3 分類ではモデルの 3 クラス logits をそのまま使います。
   entropy、pseudo-label、support selection は共通関数を通して分類モードを切り替えます。
+
+- `TTA/adapt_algorithm/mem_oftta.py`
+  WESAD のブロック構造による batch composition 依存を抑えるための OFTTA 派生手法です。
+  source classifier weight を常に prototype anchor として残し、低 entropy / 高 confidence の target feature を
+  class-balanced memory に保存します。また、現在 batch が単一クラスへ偏っている場合は
+  BatchNorm の test-batch 統計混合と support 更新を弱めます。特徴分布または予測分布の急変を検出した場合は、
+  短期 memory を reset します。手法の詳細は `mem_oftta_method.md` にまとめています。
 
 ### `scripts/`
 
@@ -150,6 +159,9 @@ Test-Time Adaptation の設定とアルゴリズム実装を置くディレク�
 - `scripts/wesad/adapt_tta_wesad_3class.sh`
   3 分類 checkpoint を使い、source と各 TTA 手法を全被験者に対して評価します。
 
+- `scripts/wesad/adapt_mem_oftta_wesad_3class.sh`
+  3 分類 checkpoint `./ckpt_3class` を使い、`mem_oftta` だけを全被験者に対して評価します。
+
 - `scripts/wesad/compare_source_tent_oftta_shuffle_wesad.sh`
   target loader を shuffle して、Source、Tent、OFTTA の比較表とグラフを作成します。
 
@@ -161,6 +173,12 @@ Test-Time Adaptation の設定とアルゴリズム実装を置くディレク�
 
 - `scripts/wesad/compare_source_tent_oftta_shuffle_wesad_3class.sh`
   3 分類 checkpoint `./ckpt_3class` を使い、target loader を shuffle して Source、Tent、OFTTA を比較します。
+
+- `scripts/wesad/compare_source_tent_oftta_mem_oftta_wesad_3class.sh`
+  3 分類 checkpoint `./ckpt_3class` を使い、Source、Tent、OFTTA、MemOFTTA を比較します。
+
+- `scripts/wesad/compare_source_tent_oftta_mem_oftta_shuffle_wesad_3class.sh`
+  3 分類 checkpoint `./ckpt_3class` を使い、target loader を shuffle して Source、Tent、OFTTA、MemOFTTA を比較します。
 
 - `scripts/wesad/compare_source_tent_oftta_fixed_shuffle_wesad_3class.sh`
   固定 epoch の 3 分類 checkpoint `./ckpt_fixed_3class` を使い、target loader を shuffle して比較します。
@@ -342,7 +360,7 @@ conda run -n wesad_env python adapt.py \
 ```
 
 `--algorithm_cfg` を `tent.yaml`, `norm.yaml`, `pl.yaml`, `shot.yaml`, `sar.yaml`,
-`t3a.yaml`, `tast.yaml`, `tast_bn.yaml`, `oftta.yaml` に変えることで、同じ checkpoint に対して
+`t3a.yaml`, `tast.yaml`, `tast_bn.yaml`, `oftta.yaml`, `mem_oftta.yaml` に変えることで、同じ checkpoint に対して
 各 TTA 手法を評価できます。
 
 3 分類 checkpoint に対して TTA を評価する場合は、3 分類用 dataset config を指定します。
@@ -354,11 +372,28 @@ conda run -n wesad_env python adapt.py \
   --algorithm_cfg ./cfg/algorithm/tent.yaml
 ```
 
+`mem_oftta` を直接評価する例です。
+
+```bash
+conda run -n wesad_env python adapt.py \
+  --target_domain S2 \
+  --dataset_cfg ./cfg/dataset/wesad_3class.yaml \
+  --algorithm_cfg ./cfg/algorithm/mem_oftta.yaml \
+  --resume ./ckpt_3class
+```
+
 全被験者・全手法をまとめて評価する場合はこちらです。
 
 ```bash
 cd /work/shinsaku-t/naist_reserch/WESAD_TTA
 conda run -n wesad_env bash scripts/wesad/adapt_tta_wesad_3class.sh
+```
+
+`mem_oftta` だけを全被験者で評価する場合はこちらです。
+
+```bash
+cd /work/shinsaku-t/naist_reserch/WESAD_TTA
+bash scripts/wesad/adapt_mem_oftta_wesad_3class.sh
 ```
 
 ### target loader を shuffle した比較
@@ -400,6 +435,20 @@ target loader を shuffle して 3 分類 TTA の batch composition 依存を調
 
 ```bash
 conda run -n wesad_env bash scripts/wesad/compare_source_tent_oftta_shuffle_wesad_3class.sh
+```
+
+Source、Tent、OFTTA に加えて MemOFTTA も同時に比較する場合はこちらです。
+
+```bash
+cd /work/shinsaku-t/naist_reserch/WESAD_TTA
+bash scripts/wesad/compare_source_tent_oftta_mem_oftta_wesad_3class.sh
+```
+
+shuffle 条件で MemOFTTA まで比較する場合はこちらです。
+
+```bash
+cd /work/shinsaku-t/naist_reserch/WESAD_TTA
+bash scripts/wesad/compare_source_tent_oftta_mem_oftta_shuffle_wesad_3class.sh
 ```
 
 固定 epoch の 3 分類 checkpoint `ckpt_fixed_3class/` を使う場合はこちらです。

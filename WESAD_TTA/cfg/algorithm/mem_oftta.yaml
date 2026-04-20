@@ -1,0 +1,28 @@
+# Memory-balanced OFTTA.
+# 既存 OFTTA は残し、この設定を指定した場合だけ memory/gating/reset 付き OFTTA を使う。
+adaption: mem_oftta
+tta_steps: 1
+tta_lr: 0.0001
+episodic: false
+filter_K: 16
+oftta_prior_min: 0.1
+oftta_prior_max: 0.99
+
+# Class-balanced memory sizes per predicted class.
+mem_oftta_long_K: 32
+mem_oftta_short_K: 16
+
+# Only confident samples are allowed into target memory.
+mem_oftta_confidence_threshold: 0.75
+
+# If a batch is class-biased or low-confidence, weaken support updates.
+mem_oftta_update_gate_threshold: 0.35
+mem_oftta_gate_power: 1.0
+
+# Probe with source-anchored BN before deciding how strongly to use test stats.
+# 0.0 means source BN stats only; 1.0 means normal OFTTA weighted BN.
+mem_oftta_probe_gate: 0.0
+
+# Short memory is reset when feature or prediction distribution shifts abruptly.
+mem_oftta_feature_shift_threshold: 0.65
+mem_oftta_pred_shift_threshold: 0.35
