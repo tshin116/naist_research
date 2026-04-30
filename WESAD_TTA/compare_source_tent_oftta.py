@@ -32,6 +32,9 @@ METHODS = ["source", "tent", "oftta"]
 METHOD_LABELS = {
     "source": "Source",
     "tent": "Tent",
+    "ema_tent": "EMATent",
+    "ema_tent_safe": "EMATentSafe",
+    "ema_tent_adaptive": "EMATentAdaptive",
     "oftta": "OFTTA",
     "mem_oftta": "MemOFTTA",
 }
@@ -205,7 +208,7 @@ def save_average_barplot(df, output_path, methods):
     avg = df[df["Subject"] == "Average"].iloc[0]
     metrics = [
         ("Accuracy", "Acc"),
-        ("Mean F1", "MeanF1"),
+        ("Macro-F1", "MacroF1"),
         ("F1 Stress", "F1_1"),
     ]
     if "Source_F1_2" in df.columns:
@@ -274,13 +277,13 @@ def main():
             row[f"{prefix}_F1_1"] = metrics["f1_stress"]
             if metrics["f1_class_2"] is not None:
                 row[f"{prefix}_F1_2"] = metrics["f1_class_2"]
-            row[f"{prefix}_MeanF1"] = metrics["mean_f1"]
+            row[f"{prefix}_MacroF1"] = metrics["mean_f1"]
             print(
                 f"  {prefix}: Acc={metrics['accuracy']:.4f}, "
                 f"F1(0)={metrics['f1_non_stress']:.4f}, "
                 f"F1(1)={metrics['f1_stress']:.4f}, "
                 f"F1(2)={(metrics['f1_class_2'] or 0.0):.4f}, "
-                f"MeanF1={metrics['mean_f1']:.4f}"
+                f"MacroF1={metrics['mean_f1']:.4f}"
             )
         rows.append(row)
 
@@ -295,7 +298,7 @@ def main():
 
     csv_path = os.path.join(out_dir, "source_tent_oftta_comparison.csv")
     md_path = os.path.join(out_dir, "source_tent_oftta_comparison.md")
-    mean_f1_plot_path = os.path.join(out_dir, "source_tent_oftta_mean_f1.png")
+    macro_f1_plot_path = os.path.join(out_dir, "source_tent_oftta_macro_f1.png")
     stress_f1_plot_path = os.path.join(out_dir, "source_tent_oftta_stress_f1.png")
     amusement_f1_plot_path = os.path.join(out_dir, "source_tent_oftta_amusement_f1.png")
     accuracy_plot_path = os.path.join(out_dir, "source_tent_oftta_accuracy.png")
@@ -313,10 +316,10 @@ def main():
 
     save_metric_barplot(
         summary_df,
-        "MeanF1",
-        "Mean F1",
-        "Source vs Tent vs OFTTA: Mean F1 by Subject",
-        mean_f1_plot_path,
+        "MacroF1",
+        "Macro-F1",
+        "Source vs Tent vs OFTTA: Macro-F1 by Subject",
+        macro_f1_plot_path,
         methods,
     )
     save_metric_barplot(
@@ -361,7 +364,7 @@ def main():
 
     print(f"\nCSV saved to: {csv_path}")
     print(f"Markdown saved to: {md_path}")
-    print(f"Mean F1 plot saved to: {mean_f1_plot_path}")
+    print(f"Macro-F1 plot saved to: {macro_f1_plot_path}")
     print(f"Stress F1 plot saved to: {stress_f1_plot_path}")
     if "Source_F1_2" in summary_df.columns:
         print(f"Amusement F1 plot saved to: {amusement_f1_plot_path}")

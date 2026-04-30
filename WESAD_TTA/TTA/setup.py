@@ -2,7 +2,7 @@
 
 import torch
 
-from TTA.adapt_algorithm import mem_oftta, norm, oftta, pl, sar, shot, t3a, tast, tast_bn, tent
+from TTA.adapt_algorithm import ema_tent, mem_oftta, norm, oftta, pl, sar, shot, t3a, tast, tast_bn, tent
 
 
 def setup_source(args, model):
@@ -22,6 +22,21 @@ def setup_tent(args, model):
         steps=args.tent_steps,
         episodic=args.episodic,
         label_mode=getattr(args, "label_mode", "binary"),
+    )
+
+
+def setup_ema_tent(args, model):
+    """EMA-Tent 用に BatchNorm1d 統計を source/EMA/current batch の混合にする。"""
+    model = ema_tent.configure_model(model, args)
+    params, _ = ema_tent.collect_params(model)
+    optimizer = torch.optim.Adam(params, lr=args.tent_lr, betas=(0.9, 0.999), weight_decay=0.0)
+    return ema_tent.EMATent(
+        model,
+        optimizer,
+        steps=args.tent_steps,
+        episodic=args.episodic,
+        label_mode=getattr(args, "label_mode", "binary"),
+        args=args,
     )
 
 
@@ -83,6 +98,8 @@ def get_adaptation(args, base_model):
         return setup_source(args, base_model)
     if args.adaption == "tent":
         return setup_tent(args, base_model)
+    if args.adaption == "ema_tent":
+        return setup_ema_tent(args, base_model)
     if args.adaption == "norm":
         return setup_norm(args, base_model)
     if args.adaption == "pl":

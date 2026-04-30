@@ -67,11 +67,14 @@ YAML として分離しています。
   Tent 適応に使う設定です。Tent の学習率、1 バッチあたりの更新回数、episodic adaptation の有無を定義します。
 
 - `cfg/algorithm/*.yaml`
-  `norm`, `pl`, `shot`, `sar`, `t3a`, `tast`, `tast_bn`, `oftta`, `mem_oftta` など、各 TTA 手法の設定です。
+  `norm`, `pl`, `shot`, `sar`, `t3a`, `tast`, `tast_bn`, `oftta`, `mem_oftta`, `ema_tent` など、各 TTA 手法の設定です。
   OFTTA 由来の 2D-CNN 前提の設定を、WESAD の 1D-CNN 用に分けています。
   分類クラス数は dataset config の `label_mode` と `num_classes` で切り替えます。
   `mem_oftta.yaml` は OFTTA をベースに、class-balanced memory、source prototype anchor、
   batch bias gate、短期 memory reset を追加した実験用設定です。既存の `oftta.yaml` は変更しません。
+  `ema_tent.yaml` は Tent をベースに、BatchNorm 統計を source running stats、過去 test EMA stats、
+  current batch stats の混合に置き換える実験用設定です。batch の予測分布が偏っている場合は
+  current batch stats と Tent 更新を弱めます。既存の `tent.yaml` は変更しません。
 
 ### `data_processing/`
 
@@ -111,7 +114,7 @@ Test-Time Adaptation の設定とアルゴリズム実装を置くディレク�
 
 - `TTA/adapt_algorithm/*.py`
   OFTTA ディレクトリにある TTA 手法を、WESAD の 1D-CNN に合わせて移植した実装です。
-  追加済みの手法は `norm`, `pl`, `shot`, `sar`, `t3a`, `tast`, `tast_bn`, `oftta`, `mem_oftta` です。
+  追加済みの手法は `norm`, `pl`, `shot`, `sar`, `t3a`, `tast`, `tast_bn`, `oftta`, `mem_oftta`, `ema_tent` です。
   `BatchNorm2d` 前提の処理は `BatchNorm1d` に変更しています。二値分類では single-logit を内部で
   2 クラス logits に変換し、3 分類ではモデルの 3 クラス logits をそのまま使います。
   entropy、pseudo-label、support selection は共通関数を通して分類モードを切り替えます。
@@ -122,6 +125,12 @@ Test-Time Adaptation の設定とアルゴリズム実装を置くディレク�
   class-balanced memory に保存します。また、現在 batch が単一クラスへ偏っている場合は
   BatchNorm の test-batch 統計混合と support 更新を弱めます。特徴分布または予測分布の急変を検出した場合は、
   短期 memory を reset します。手法の詳細は `mem_oftta_method.md` にまとめています。
+
+- `TTA/adapt_algorithm/ema_tent.py`
+  WESAD の時系列ブロック構造で Tent が current batch の BatchNorm 統計だけに依存して破綻しやすい問題を抑えるための
+  Tent 派生手法です。BatchNorm1d を EMA 対応版に置き換え、source running stats、過去 test EMA stats、
+  current batch stats を混合して正規化します。さらに、batch の予測分布が単一クラスに偏る場合は
+  current batch stats の寄与と entropy minimization 更新を弱めます。
 
 ### `scripts/`
 
@@ -162,6 +171,9 @@ Test-Time Adaptation の設定とアルゴリズム実装を置くディレク�
 - `scripts/wesad/adapt_mem_oftta_wesad_3class.sh`
   3 分類 checkpoint `./ckpt_3class` を使い、`mem_oftta` だけを全被験者に対して評価します。
 
+- `scripts/wesad/adapt_ema_tent_wesad_3class.sh`
+  3 分類 checkpoint `./ckpt_3class` を使い、`ema_tent` だけを全被験者に対して評価します。
+
 - `scripts/wesad/compare_source_tent_oftta_shuffle_wesad.sh`
   target loader を shuffle して、Source、Tent、OFTTA の比較表とグラフを作成します。
 
@@ -179,6 +191,12 @@ Test-Time Adaptation の設定とアルゴリズム実装を置くディレク�
 
 - `scripts/wesad/compare_source_tent_oftta_mem_oftta_shuffle_wesad_3class.sh`
   3 分類 checkpoint `./ckpt_3class` を使い、target loader を shuffle して Source、Tent、OFTTA、MemOFTTA を比較します。
+
+- `scripts/wesad/compare_source_tent_ema_tent_oftta_wesad_3class.sh`
+  3 分類 checkpoint `./ckpt_3class` を使い、Source、Tent、EMA-Tent、OFTTA を比較します。
+
+- `scripts/wesad/compare_source_tent_ema_tent_oftta_shuffle_wesad_3class.sh`
+  3 分類 checkpoint `./ckpt_3class` を使い、target loader を shuffle して Source、Tent、EMA-Tent、OFTTA を比較します。
 
 - `scripts/wesad/compare_source_tent_oftta_fixed_shuffle_wesad_3class.sh`
   固定 epoch の 3 分類 checkpoint `./ckpt_fixed_3class` を使い、target loader を shuffle して比較します。
@@ -359,7 +377,7 @@ conda run -n wesad_env python adapt.py \
   --algorithm_cfg ./cfg/algorithm/oftta.yaml
 ```
 
-`--algorithm_cfg` を `tent.yaml`, `norm.yaml`, `pl.yaml`, `shot.yaml`, `sar.yaml`,
+`--algorithm_cfg` を `tent.yaml`, `ema_tent.yaml`, `norm.yaml`, `pl.yaml`, `shot.yaml`, `sar.yaml`,
 `t3a.yaml`, `tast.yaml`, `tast_bn.yaml`, `oftta.yaml`, `mem_oftta.yaml` に変えることで、同じ checkpoint に対して
 各 TTA 手法を評価できます。
 
@@ -396,6 +414,13 @@ cd /work/shinsaku-t/naist_reserch/WESAD_TTA
 bash scripts/wesad/adapt_mem_oftta_wesad_3class.sh
 ```
 
+`ema_tent` だけを全被験者で評価する場合はこちらです。
+
+```bash
+cd /work/shinsaku-t/naist_reserch/WESAD_TTA
+bash scripts/wesad/adapt_ema_tent_wesad_3class.sh
+```
+
 ### target loader を shuffle した比較
 
 通常の `wesad.yaml` では target window を時系列順に batch 化します。先頭の安静時 window が Tent/OFTTA に
@@ -415,8 +440,8 @@ conda run -n wesad_env bash scripts/wesad/compare_source_tent_oftta_fixed_shuffl
 ### 3 分類 Source / Tent / OFTTA 比較
 
 3 分類 checkpoint `ckpt_3class/` を使って、Source、Tent、OFTTA を被験者ごとに比較します。
-3 分類の場合は CSV / Markdown に `F1_0`, `F1_1`, `F1_2`, `MeanF1` が出力され、
-グラフも Accuracy、Mean F1、Stress F1、Amusement F1 を保存します。
+3 分類の場合は CSV / Markdown に `F1_0`, `F1_1`, `F1_2`, `MacroF1` が出力され、
+グラフも Accuracy、Macro-F1、Stress F1、Amusement F1 を保存します。
 
 ```bash
 cd /work/shinsaku-t/naist_reserch/WESAD_TTA
@@ -451,6 +476,20 @@ cd /work/shinsaku-t/naist_reserch/WESAD_TTA
 bash scripts/wesad/compare_source_tent_oftta_mem_oftta_shuffle_wesad_3class.sh
 ```
 
+Source、Tent、EMA-Tent、OFTTA を比較する場合はこちらです。
+
+```bash
+cd /work/shinsaku-t/naist_reserch/WESAD_TTA
+bash scripts/wesad/compare_source_tent_ema_tent_oftta_wesad_3class.sh
+```
+
+shuffle 条件で EMA-Tent まで比較する場合はこちらです。
+
+```bash
+cd /work/shinsaku-t/naist_reserch/WESAD_TTA
+bash scripts/wesad/compare_source_tent_ema_tent_oftta_shuffle_wesad_3class.sh
+```
+
 固定 epoch の 3 分類 checkpoint `ckpt_fixed_3class/` を使う場合はこちらです。
 
 ```bash
@@ -460,6 +499,40 @@ conda run -n wesad_env bash scripts/wesad/compare_source_tent_oftta_fixed_shuffl
 内部では `cfg/dataset/wesad_3class_target_shuffle.yaml` を使います。これは `wesad_3class.yaml` と同じ
 3分類設定のまま、評価時の target loader だけ `target_shuffle: true` にした設定です。比較スクリプトは
 各手法の評価直前に同じ seed を設定し直すため、Tent と OFTTA は同じ shuffled batch 順序で比較されます。
+
+### 被験者差の t-SNE 可視化
+
+生体信号の個人差を可視化する場合は、LOSO checkpoint から 1D-CNN 中間特徴を抽出して t-SNE を作成します。
+
+```bash
+conda run -n wesad_env python analyze_subject_tsne.py \
+  --dataset_cfg ./cfg/dataset/wesad_3class.yaml \
+  --resume ./ckpt_3class \
+  --checkpoint_subject S2 \
+  --max_per_subject_label 40
+```
+
+出力例は `logs/wesad/subject_tsne/260422_223445` です。論文では、同一感情ラベル内でも被験者ごとに特徴分布が分かれる傾向を示す補助的な可視化として使います。
+
+## EMA-Tent 導入後の評価結果
+
+通常順序の WESAD 3分類評価では、EMA-Tent が Source、Tent、OFTTA を平均性能で上回りました。
+評価ログは `logs/wesad/compare_source_tent_oftta/260421_233138` です。
+
+| Method | Accuracy | Macro-F1 | F1 Baseline | F1 Stress | F1 Amusement |
+|---|---:|---:|---:|---:|---:|
+| Source | 0.6915 | 0.5285 | 0.8790 | 0.4747 | 0.2317 |
+| Tent | 0.4553 | 0.3970 | 0.5461 | 0.4340 | 0.2110 |
+| EMA-Tent | 0.7075 | 0.6136 | 0.8413 | 0.6224 | 0.3771 |
+| OFTTA | 0.5231 | 0.4499 | 0.6421 | 0.4629 | 0.2447 |
+
+EMA-Tent は Source に対して Macro-F1 を +0.0851 改善し、特に Stress F1 を +0.1477、
+Amusement F1 を +0.1454 改善しました。通常 Tent に対しては Macro-F1 を +0.2166 改善しており、
+current batch の BN 統計だけに依存する Tent の不安定性を、過去 test batch の EMA 統計によって緩和できたと考えられます。
+
+主設定は `source=0.2, ema=0.5, batch=0.3, momentum=0.80` です。詳細な分析は
+`paper_results_ema_tent.md` および
+`logs/wesad/compare_source_tent_oftta/ema_tent_hparam_grid_260421_analysis.md` に保存しています。
 
 ## 注意点
 

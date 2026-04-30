@@ -1,0 +1,4 @@
+target,x_metric,n,pearson_r,spearman_rho
+Tent_delta_vs_source,Source_MacroF1,15,-0.9025673353247975,-0.8821428571428571
+OFTTA_delta_vs_source,Source_MacroF1,15,-0.8593981165898041,-0.7428571428571428
+EmaTentGridS20E50B30M080_delta_vs_source,Source_MacroF1,15,-0.3057106376057087,-0.2714285714285714

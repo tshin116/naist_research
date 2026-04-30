@@ -1,0 +1,9 @@
+dataset_cfg: ./cfg/dataset/wesad_3class_target_shuffle.yaml
+default_cfg: ./cfg/default.yaml
+methods:
+- source
+- tent
+- oftta
+resume: ./ckpt_3class
+subjects:
+- S2

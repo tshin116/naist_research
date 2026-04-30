@@ -26,7 +26,7 @@ DEFAULT_CLASS_NAMES = {
     1: "Stress",
     2: "Amusement",
 }
-METHODS = ["Tent", "OFTTA"]
+DEFAULT_METHODS = ["Tent", "OFTTA"]
 BIAS_METRICS = [
     ("mean_max_class_ratio", "Mean max class ratio"),
     ("mean_imbalance", "Mean batch imbalance"),
@@ -56,6 +56,12 @@ def parse_args():
     )
     parser.add_argument("--out_path", type=str, default="./logs")
     parser.add_argument("--subjects", nargs="*", default=None)
+    parser.add_argument(
+        "--methods",
+        nargs="+",
+        default=None,
+        help="Method labels in comparison CSV to correlate. If omitted, all non-Source *_MacroF1/*_MeanF1 columns are used.",
+    )
     parser.add_argument("--seed", type=int, default=None)
     return parser.parse_args()
 
@@ -105,6 +111,34 @@ def read_comparison_csv(path):
                 parsed[key] = float(value)
             rows[subject] = parsed
     return rows
+
+
+def infer_methods(comparison_rows, cli_methods=None):
+    if cli_methods:
+        return cli_methods
+    first = next(iter(comparison_rows.values()))
+    methods = []
+    for key in first:
+        if key.endswith("_MacroF1"):
+            method = key[: -len("_MacroF1")]
+        elif key.endswith("_MeanF1"):
+            method = key[: -len("_MeanF1")]
+        else:
+            continue
+        if method != "Source":
+            methods.append(method)
+    return methods or DEFAULT_METHODS
+
+
+def macro_f1_key(row, method):
+    """Return the Macro-F1 column key, accepting old MeanF1 logs for compatibility."""
+    macro_key = f"{method}_MacroF1"
+    legacy_key = f"{method}_MeanF1"
+    if macro_key in row:
+        return macro_key
+    if legacy_key in row:
+        return legacy_key
+    return None
 
 
 def batch_counts_from_loader(loader, num_classes):
@@ -180,23 +214,31 @@ def summarize_subject(subject, batch_rows, num_classes):
     return summary
 
 
-def attach_performance(summary_rows, comparison_rows, shuffle_rows=None):
+def attach_performance(summary_rows, comparison_rows, methods, shuffle_rows=None):
     for row in summary_rows:
         subject = row["Subject"]
         perf = comparison_rows.get(subject)
         if perf is None:
             continue
-        row["Source_MeanF1"] = perf["Source_MeanF1"]
-        for method in METHODS:
-            row[f"{method}_MeanF1"] = perf[f"{method}_MeanF1"]
-            row[f"{method}_delta_vs_source"] = perf[f"{method}_MeanF1"] - perf["Source_MeanF1"]
+        source_key = macro_f1_key(perf, "Source")
+        if source_key is None:
+            continue
+        row["Source_MacroF1"] = perf[source_key]
+        for method in methods:
+            metric_key = macro_f1_key(perf, method)
+            if metric_key is None:
+                continue
+            row[f"{method}_MacroF1"] = perf[metric_key]
+            row[f"{method}_delta_vs_source"] = perf[metric_key] - perf[source_key]
 
         if shuffle_rows is not None and subject in shuffle_rows:
             shuffle_perf = shuffle_rows[subject]
-            for method in METHODS:
-                row[f"{method}_shuffle_gain"] = (
-                    shuffle_perf[f"{method}_MeanF1"] - perf[f"{method}_MeanF1"]
-                )
+            for method in methods:
+                metric_key = macro_f1_key(perf, method)
+                shuffle_metric_key = macro_f1_key(shuffle_perf, method)
+                if metric_key is None or shuffle_metric_key is None:
+                    continue
+                row[f"{method}_shuffle_gain"] = shuffle_perf[shuffle_metric_key] - perf[metric_key]
 
 
 def write_csv(path, rows):
@@ -339,12 +381,14 @@ def fit_line(x, y):
     return slope, intercept
 
 
-def save_correlation_scatter(summary_rows, target_suffix, output_path):
-    y_columns = [f"{method}_{target_suffix}" for method in METHODS]
+def save_correlation_scatter(summary_rows, target_suffix, output_path, methods):
+    y_columns = [f"{method}_{target_suffix}" for method in methods if f"{method}_{target_suffix}" in summary_rows[0]]
+    if not y_columns:
+        return
     fig, axes = plt.subplots(
         len(BIAS_METRICS),
         len(y_columns),
-        figsize=(12, 3.4 * len(BIAS_METRICS)),
+        figsize=(max(6, 5.2 * len(y_columns)), 3.4 * len(BIAS_METRICS)),
         squeeze=False,
     )
 
@@ -365,7 +409,7 @@ def save_correlation_scatter(summary_rows, target_suffix, output_path):
 
             r = pearson(x, y)
             rho = spearman(x, y)
-            method = y_col.split("_")[0]
+            method = y_col[: -len(f"_{target_suffix}")]
             title = f"{method}: r={r:.3f}, rho={rho:.3f}"
             ax.set_title(title)
             ax.set_xlabel(metric_label)
@@ -378,10 +422,78 @@ def save_correlation_scatter(summary_rows, target_suffix, output_path):
     plt.close(fig)
 
 
-def correlation_rows(summary_rows, suffixes):
+def save_source_performance_scatter(summary_rows, output_path, methods):
+    if "Source_MacroF1" not in summary_rows[0]:
+        return
+    y_columns = []
+    for method in methods:
+        delta_col = f"{method}_delta_vs_source"
+        if delta_col in summary_rows[0]:
+            y_columns.append(delta_col)
+    if not y_columns:
+        return
+
+    fig, axes = plt.subplots(
+        1,
+        len(y_columns),
+        figsize=(max(6, 5.2 * len(y_columns)), 4.4),
+        squeeze=False,
+    )
+    x = np.array([row["Source_MacroF1"] for row in summary_rows], dtype=float)
+    for col_idx, y_col in enumerate(y_columns):
+        ax = axes[0][col_idx]
+        y = np.array([row[y_col] for row in summary_rows], dtype=float)
+        ax.scatter(x, y, color="#4C78A8", edgecolor="white", linewidth=0.7, s=64)
+        for row, x_value, y_value in zip(summary_rows, x, y):
+            ax.annotate(row["Subject"], (x_value, y_value), fontsize=8, xytext=(3, 3), textcoords="offset points")
+
+        line = fit_line(x, y)
+        if line is not None:
+            slope, intercept = line
+            xs = np.linspace(float(x.min()), float(x.max()), 100)
+            ax.plot(xs, slope * xs + intercept, color="#E45756", linewidth=1.8)
+
+        r = pearson(x, y)
+        rho = spearman(x, y)
+        method = y_col[: -len("_delta_vs_source")]
+        ax.set_title(f"{method}: r={r:.3f}, rho={rho:.3f}")
+        ax.set_xlabel("Source Macro-F1")
+        ax.set_ylabel(f"{method} - Source Macro-F1")
+        ax.axhline(0.0, color="#333333", linewidth=0.8, linestyle="--", alpha=0.6)
+        ax.grid(True, linestyle=":", alpha=0.35)
+
+    fig.suptitle("Source performance vs TTA improvement")
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=220)
+    plt.close(fig)
+
+
+def source_performance_correlation_rows(summary_rows, methods):
+    rows = []
+    if "Source_MacroF1" not in summary_rows[0]:
+        return rows
+    x = [row["Source_MacroF1"] for row in summary_rows]
+    for method in methods:
+        y_col = f"{method}_delta_vs_source"
+        if y_col not in summary_rows[0]:
+            continue
+        y = [row[y_col] for row in summary_rows]
+        rows.append(
+            {
+                "target": y_col,
+                "x_metric": "Source_MacroF1",
+                "n": len(summary_rows),
+                "pearson_r": pearson(x, y),
+                "spearman_rho": spearman(x, y),
+            }
+        )
+    return rows
+
+
+def correlation_rows(summary_rows, suffixes, methods):
     rows = []
     for suffix in suffixes:
-        for method in METHODS:
+        for method in methods:
             y_col = f"{method}_{suffix}"
             if y_col not in summary_rows[0]:
                 continue
@@ -459,13 +571,16 @@ def main():
 
     comparison_rows = read_comparison_csv(cli_args.comparison_csv)
     shuffle_rows = read_comparison_csv(cli_args.shuffle_comparison_csv) if cli_args.shuffle_comparison_csv else None
-    attach_performance(summary_rows, comparison_rows, shuffle_rows=shuffle_rows)
+    methods = infer_methods(comparison_rows, cli_args.methods)
+    attach_performance(summary_rows, comparison_rows, methods, shuffle_rows=shuffle_rows)
 
     summary_csv = os.path.join(out_dir, "batch_bias_summary.csv")
     detail_csv = os.path.join(out_dir, "batch_bias_by_batch.csv")
     corr_csv = os.path.join(out_dir, "batch_bias_correlations.csv")
+    source_corr_csv = os.path.join(out_dir, "source_performance_correlations.csv")
     summary_md = os.path.join(out_dir, "batch_bias_summary.md")
     corr_md = os.path.join(out_dir, "batch_bias_correlations.md")
+    source_corr_md = os.path.join(out_dir, "source_performance_correlations.md")
 
     write_csv(summary_csv, summary_rows)
     write_csv(detail_csv, batch_detail_rows)
@@ -474,9 +589,12 @@ def main():
     suffixes = ["delta_vs_source"]
     if shuffle_rows is not None:
         suffixes.append("shuffle_gain")
-    corr = correlation_rows(summary_rows, suffixes)
+    corr = correlation_rows(summary_rows, suffixes, methods)
     write_csv(corr_csv, corr)
     write_markdown_table(corr_md, corr, "Batch Bias Correlations")
+    source_corr = source_performance_correlation_rows(summary_rows, methods)
+    write_csv(source_corr_csv, source_corr)
+    write_markdown_table(source_corr_md, source_corr, "Source Performance Correlations")
 
     save_batch_distribution_plot(
         subject_batches,
@@ -495,12 +613,19 @@ def main():
         summary_rows,
         "delta_vs_source",
         os.path.join(out_dir, "batch_bias_vs_tta_delta_scatter.png"),
+        methods,
+    )
+    save_source_performance_scatter(
+        summary_rows,
+        os.path.join(out_dir, "source_macro_f1_vs_tta_delta_scatter.png"),
+        methods,
     )
     if shuffle_rows is not None:
         save_correlation_scatter(
             summary_rows,
             "shuffle_gain",
             os.path.join(out_dir, "batch_bias_vs_shuffle_gain_scatter.png"),
+            methods,
         )
 
     with open(os.path.join(out_dir, "config.yaml"), "w", encoding="utf-8") as handle:
@@ -512,6 +637,7 @@ def main():
                 "shuffle_comparison_csv": cli_args.shuffle_comparison_csv,
                 "subjects": subjects,
                 "num_classes": num_classes,
+                "methods": methods,
                 "seed": seed,
             },
             handle,
@@ -523,11 +649,13 @@ def main():
     print(f"Summary CSV: {summary_csv}")
     print(f"Batch detail CSV: {detail_csv}")
     print(f"Correlation CSV: {corr_csv}")
+    print(f"Source performance correlation CSV: {source_corr_csv}")
     print("Figures:")
     print(f"  {os.path.join(out_dir, 'batch_class_distribution_by_subject.png')}")
     print(f"  {os.path.join(out_dir, 'batch_max_class_ratio_heatmap.png')}")
     print(f"  {os.path.join(out_dir, 'batch_bias_metric_boxplots.png')}")
     print(f"  {os.path.join(out_dir, 'batch_bias_vs_tta_delta_scatter.png')}")
+    print(f"  {os.path.join(out_dir, 'source_macro_f1_vs_tta_delta_scatter.png')}")
     if shuffle_rows is not None:
         print(f"  {os.path.join(out_dir, 'batch_bias_vs_shuffle_gain_scatter.png')}")
 

@@ -1,0 +1,2 @@
+target_domain,train_subjects,adaption,source_accuracy,source_f1_non_stress,source_f1_stress,source_f1_per_class,source_mean_f1,adapt_accuracy,adapt_f1_non_stress,adapt_f1_stress,adapt_f1_per_class,adapt_mean_f1
+S2,"['S10', 'S11', 'S13', 'S14', 'S15', 'S16', 'S17', 'S3', 'S4', 'S5', 'S6', 'S7', 'S8', 'S9']",norm,0.5400943396226415,0.7057010785824345,0.0,"[0.7057010785824345, 0.0, 0.0]",0.2352336928608115,0.5212264150943396,0.6057692307692307,0.45643153526970953,"[0.6057692307692307, 0.45643153526970953, 0.418848167539267]",0.49368297785940246

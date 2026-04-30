@@ -1,0 +1,24 @@
+dataset_cfg: ./cfg/dataset/wesad_3class.yaml
+default_cfg: ./cfg/default.yaml
+methods:
+- source
+- tent
+- oftta
+- ema_tent_safe
+resume: ./ckpt_3class
+subjects:
+- S2
+- S3
+- S4
+- S5
+- S6
+- S7
+- S8
+- S9
+- S10
+- S11
+- S13
+- S14
+- S15
+- S16
+- S17

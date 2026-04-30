@@ -1,0 +1,24 @@
+# EMA-Tent による test-time adaptation 設定。
+# 既存 Tent は current batch stats のみを使うが、EMA-Tent は
+# source running stats + 過去test EMA stats + current batch stats を混合する。
+# 260421 hyperparameter grid に基づき、論文主設定として使用する。
+adaption: ema_tent
+tent_lr: 0.0001
+tent_steps: 1
+episodic: false
+
+# BN統計混合の基本重み。内部で合計1に正規化される。
+ema_tent_source_weight: 0.2
+ema_tent_ema_weight: 0.5
+ema_tent_batch_weight: 0.3
+ema_tent_momentum: 0.8
+
+# batch予測分布が偏っているとき、current batch stats と Tent 更新を弱める。
+ema_tent_use_gate: true
+ema_tent_gate_threshold: 0.2
+ema_tent_gate_power: 1.0
+ema_tent_min_confidence: 0.0
+ema_tent_loss_gate: true
+
+# gate推定時のBN gate。0.0ならsource/EMA寄りでprobeし、current batch統計を信じすぎない。
+ema_tent_probe_gate: 0.0
