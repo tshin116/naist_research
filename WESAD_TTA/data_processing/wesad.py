@@ -255,6 +255,82 @@ def make_loader(x_data, y_data, batch_size, shuffle_data=False, num_workers=0, l
     return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle_data, num_workers=num_workers)
 
 
+def make_class_balanced_order(y_data, batch_size, num_classes, seed=42):
+    """各 target batch に全クラスが入るように index 順を並べ替える。
+
+    真のラベルを使うため、この順序は診断実験用であり実運用設定ではない。
+    各 sample は重複なしで 1 回だけ使う。
+    """
+    rng = np.random.default_rng(seed)
+    class_queues = []
+    for class_idx in range(num_classes):
+        indices = np.where(y_data == class_idx)[0]
+        rng.shuffle(indices)
+        class_queues.append(indices.tolist())
+
+    n_samples = len(y_data)
+    n_batches = int(np.ceil(n_samples / batch_size))
+    ordered = []
+
+    for batch_idx in range(n_batches):
+        remaining_batches = n_batches - batch_idx - 1
+        capacity = min(batch_size, n_samples - len(ordered))
+        batch = []
+
+        # First reserve one item per class whenever possible, so that each
+        # diagnostic batch contains all labels.
+        for class_idx in range(num_classes):
+            if class_queues[class_idx] and len(batch) < capacity:
+                batch.append(class_queues[class_idx].pop(0))
+
+        while len(batch) < capacity:
+            candidates = []
+            for class_idx, queue in enumerate(class_queues):
+                if not queue:
+                    continue
+                # Keep one sample per future batch when possible.
+                spare = len(queue) - remaining_batches
+                candidates.append((spare, len(queue), class_idx))
+            if not candidates:
+                break
+            _spare, _remaining, class_idx = max(candidates)
+            batch.append(class_queues[class_idx].pop(0))
+
+        rng.shuffle(batch)
+        ordered.extend(batch)
+
+    return np.asarray(ordered, dtype=np.int64)
+
+
+def make_target_loader(
+    x_data,
+    y_data,
+    batch_size,
+    shuffle_data=False,
+    class_balanced=False,
+    num_workers=0,
+    label_mode="binary",
+    num_classes=None,
+    seed=42,
+):
+    """評価用 target loader を作る。"""
+    if class_balanced:
+        if num_classes is None:
+            num_classes = int(np.max(y_data)) + 1
+        order = make_class_balanced_order(y_data, batch_size, num_classes, seed=seed)
+        x_data = x_data[order]
+        y_data = y_data[order]
+        shuffle_data = False
+    return make_loader(
+        x_data,
+        y_data,
+        batch_size,
+        shuffle_data=shuffle_data,
+        num_workers=num_workers,
+        label_mode=label_mode,
+    )
+
+
 def get_loso_loaders(args, subjects_data=None):
     """指定した `target_domain` をテスト被験者とする LOSO 用 loader を返す。
 
@@ -301,13 +377,16 @@ def get_target_loader(args):
     """
     subject_data = load_or_preprocess_subject(args, args.target_domain)
     target_shuffle = getattr(args, "target_shuffle", False)
-    target_loader = make_loader(
+    target_loader = make_target_loader(
         subject_data["X"],
         subject_data["y"],
         args.batch_size,
         shuffle_data=target_shuffle,
+        class_balanced=getattr(args, "target_class_balanced", False),
         num_workers=args.num_workers,
         label_mode=getattr(args, "label_mode", "binary"),
+        num_classes=getattr(args, "num_classes", None),
+        seed=getattr(args, "seed", 42),
     )
     return target_loader
 

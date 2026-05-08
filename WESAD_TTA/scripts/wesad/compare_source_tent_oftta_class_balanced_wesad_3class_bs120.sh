@@ -1,0 +1,18 @@
+#!/bin/bash
+set -euo pipefail
+
+# WESAD 3-class diagnostic condition:
+# target windows are reordered with labels so every TTA batch contains all
+# classes whenever possible. Batch size is fixed to 120.
+cd /work/shinsaku-t/naist_reserch/WESAD_TTA
+PYTHON=${PYTHON:-/work/shinsaku-t/miniconda3/envs/wesad_env/bin/python}
+
+TMPDIR=/work/shinsaku-t/naist_reserch/tmp \
+MPLCONFIGDIR=/work/shinsaku-t/naist_reserch/tmp/matplotlib \
+CUDA_VISIBLE_DEVICES='' \
+"$PYTHON" compare_source_tent_oftta.py \
+  --dataset_cfg ./cfg/dataset/wesad_3class_target_class_balanced.yaml \
+  --resume ./ckpt_3class \
+  --batch_size 120 \
+  --run_name WESAD3class_bs120_classBalancedBatch_SourceTentOFTTA \
+  "$@"

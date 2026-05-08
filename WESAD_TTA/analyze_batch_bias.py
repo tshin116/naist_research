@@ -63,6 +63,8 @@ def parse_args():
         help="Method labels in comparison CSV to correlate. If omitted, all non-Source *_MacroF1/*_MeanF1 columns are used.",
     )
     parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument("--batch_size", type=int, default=None)
+    parser.add_argument("--run_name", type=str, default=None)
     return parser.parse_args()
 
 
@@ -73,6 +75,8 @@ def build_base_args(cli_args, subject):
     cfg["target_domain"] = subject
     if cli_args.seed is not None:
         cfg["seed"] = cli_args.seed
+    if cli_args.batch_size is not None:
+        cfg["batch_size"] = cli_args.batch_size
     # This analysis should expose the natural block structure unless the user
     # intentionally passes a shuffled dataset config.
     return SimpleNamespace(**cfg)
@@ -91,6 +95,8 @@ def resolve_subjects(cli_args):
 
 def make_output_dir(cli_args):
     current_time = datetime.now().strftime("%y%m%d_%H%M%S")
+    if cli_args.run_name:
+        current_time = f"{current_time}_{cli_args.run_name}"
     out_dir = os.path.join(cli_args.out_path, "wesad", "batch_bias_analysis", current_time)
     os.makedirs(out_dir, exist_ok=True)
     return out_dir

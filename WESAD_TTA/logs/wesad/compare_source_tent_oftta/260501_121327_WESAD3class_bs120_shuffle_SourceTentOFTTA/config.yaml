@@ -1,0 +1,25 @@
+batch_size: 120
+dataset_cfg: ./cfg/dataset/wesad_3class_target_shuffle.yaml
+default_cfg: ./cfg/default.yaml
+methods:
+- source
+- tent
+- oftta
+resume: ./ckpt_3class
+run_name: WESAD3class_bs120_shuffle_SourceTentOFTTA
+subjects:
+- S2
+- S3
+- S4
+- S5
+- S6
+- S7
+- S8
+- S9
+- S10
+- S11
+- S13
+- S14
+- S15
+- S16
+- S17

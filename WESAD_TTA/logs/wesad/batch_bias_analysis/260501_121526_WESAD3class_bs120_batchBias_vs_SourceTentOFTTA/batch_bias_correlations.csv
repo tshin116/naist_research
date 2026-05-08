@@ -1,0 +1,17 @@
+target,bias_metric,n,pearson_r,spearman_rho
+Tent_delta_vs_source,mean_max_class_ratio,15,0.30432671256463106,0.14834679739539364
+Tent_delta_vs_source,mean_imbalance,15,0.2094389596771447,0.07857142857142857
+Tent_delta_vs_source,single_class_batch_ratio,15,nan,nan
+Tent_delta_vs_source,mean_missing_classes,15,nan,nan
+OFTTA_delta_vs_source,mean_max_class_ratio,15,0.31674472060718123,0.09115285141162742
+OFTTA_delta_vs_source,mean_imbalance,15,0.22365398696763608,0.03214285714285714
+OFTTA_delta_vs_source,single_class_batch_ratio,15,nan,nan
+OFTTA_delta_vs_source,mean_missing_classes,15,nan,nan
+Tent_shuffle_gain,mean_max_class_ratio,15,-0.07210632499482013,0.16800721632731325
+Tent_shuffle_gain,mean_imbalance,15,0.024186844756369532,0.1964285714285714
+Tent_shuffle_gain,single_class_batch_ratio,15,nan,nan
+Tent_shuffle_gain,mean_missing_classes,15,nan,nan
+OFTTA_shuffle_gain,mean_max_class_ratio,15,-0.35880533007203963,-0.21626460825111604
+OFTTA_shuffle_gain,mean_imbalance,15,-0.25571321114110196,-0.1857142857142857
+OFTTA_shuffle_gain,single_class_batch_ratio,15,nan,nan
+OFTTA_shuffle_gain,mean_missing_classes,15,nan,nan

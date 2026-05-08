@@ -60,6 +60,8 @@ def parse_args():
     parser.add_argument("--methods", nargs="+", default=None)
     parser.add_argument("--device", type=str, default=None)
     parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument("--batch_size", type=int, default=None)
+    parser.add_argument("--run_name", type=str, default=None)
     return parser.parse_args()
 
 
@@ -81,6 +83,8 @@ def build_args(cli_args, method, subject):
         cfg["device"] = cli_args.device
     if cli_args.seed is not None:
         cfg["seed"] = cli_args.seed
+    if cli_args.batch_size is not None:
+        cfg["batch_size"] = cli_args.batch_size
     return SimpleNamespace(**cfg)
 
 
@@ -243,6 +247,8 @@ def save_average_barplot(df, output_path, methods):
 
 def make_output_dir(args):
     current_time = datetime.now().strftime("%y%m%d_%H%M%S")
+    if getattr(args, "run_name", None):
+        current_time = f"{current_time}_{args.run_name}"
     out_dir = os.path.join(args.out_path, "wesad", "compare_source_tent_oftta", current_time)
     os.makedirs(out_dir, exist_ok=True)
     return out_dir
@@ -252,6 +258,7 @@ def main():
     cli_args = parse_args()
     methods = cli_args.methods if cli_args.methods is not None else METHODS
     base_args = build_args(cli_args, "source", "S2")
+    base_args.run_name = cli_args.run_name
     set_seed(base_args.seed)
     device = get_device(base_args.device)
     criterion = move_criterion_to_device(make_criterion(base_args), device)
@@ -357,6 +364,8 @@ def main():
                 "default_cfg": cli_args.default_cfg,
                 "dataset_cfg": cli_args.dataset_cfg,
                 "resume": base_args.resume,
+                "batch_size": base_args.batch_size,
+                "run_name": cli_args.run_name,
             },
             handle,
             default_flow_style=False,

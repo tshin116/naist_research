@@ -1,0 +1,21 @@
+# WESAD 3-class diagnostic setting.
+# Target windows are reordered with ground-truth labels so that each TTA batch
+# contains all emotion classes whenever possible. This is an oracle analysis
+# setting for isolating batch-composition effects, not a deployable setting.
+dataset: wesad
+dataset_dir: ../self_learning_wesad/WESAD
+processed_dir: ./data/wesad/processed_3class
+use_processed: true
+subjects: null
+window_seconds: 5
+sampling_rate: 700
+window_size: 3500
+num_channels: 8
+num_classes: 3
+label_mode: 3class
+calibration_windows: 60
+batch_size: 64
+num_workers: 0
+target_shuffle: false
+target_class_balanced: true
+resume: ./ckpt_3class

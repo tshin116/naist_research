@@ -1,0 +1,9 @@
+target,bias_metric,n,pearson_r,spearman_rho
+Tent_delta_vs_source,mean_max_class_ratio,15,-0.10839081071289317,-0.15192141901937903
+Tent_delta_vs_source,mean_imbalance,15,-0.23295630512331972,-0.2321428571428571
+Tent_delta_vs_source,single_class_batch_ratio,15,nan,nan
+Tent_delta_vs_source,mean_missing_classes,15,nan,nan
+OFTTA_delta_vs_source,mean_max_class_ratio,15,-0.0247577370745996,-0.005361932435978083
+OFTTA_delta_vs_source,mean_imbalance,15,-0.1834764146176428,-0.16785714285714282
+OFTTA_delta_vs_source,single_class_batch_ratio,15,nan,nan
+OFTTA_delta_vs_source,mean_missing_classes,15,nan,nan

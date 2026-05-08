@@ -1,0 +1,25 @@
+comparison_csv: ./logs/wesad/compare_source_tent_oftta/260508_182200_WESAD3class_bs120_classBalancedBatch_SourceTentOFTTA/source_tent_oftta_comparison.csv
+dataset_cfg: ./cfg/dataset/wesad_3class_target_class_balanced.yaml
+default_cfg: ./cfg/default.yaml
+methods:
+- Tent
+- OFTTA
+num_classes: 3
+seed: 42
+shuffle_comparison_csv: null
+subjects:
+- S2
+- S3
+- S4
+- S5
+- S6
+- S7
+- S8
+- S9
+- S10
+- S11
+- S13
+- S14
+- S15
+- S16
+- S17
