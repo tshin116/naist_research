@@ -105,7 +105,10 @@ class EMATent(nn.Module):
         self.min_confidence = getattr(args, "ema_tent_min_confidence", 0.0)
         self.loss_gate = getattr(args, "ema_tent_loss_gate", True)
         self.probe_gate = getattr(args, "ema_tent_probe_gate", 0.0)
+        self.min_gate = getattr(args, "ema_tent_min_gate", 0.0)
         self.bn_layers = [module for module in model.modules() if isinstance(module, EMABatchNorm1d)]
+        self.diagnostics = []
+        self._batch_index = 0
 
         self.model_state, self.optimizer_state = copy_model_and_optimizer(self.model, self.optimizer)
 
@@ -126,6 +129,42 @@ class EMATent(nn.Module):
         for layer in self.bn_layers:
             layer.set_gate(gate)
 
+    def effective_weights(self, gate):
+        if not self.bn_layers:
+            return 0.0, 0.0, 0.0
+        layer = self.bn_layers[0]
+        batch_weight = layer.batch_weight * gate
+        source_weight = layer.source_weight + layer.batch_weight * (1.0 - gate)
+        ema_weight = layer.ema_weight
+        total = source_weight + ema_weight + batch_weight
+        return source_weight / total, ema_weight / total, batch_weight / total
+
+    def add_diagnostic(self, diagnostic):
+        diagnostic["batch_index"] = self._batch_index
+        self._batch_index += 1
+        self.diagnostics.append(diagnostic)
+
+    def record_batch_labels(self, y_batch):
+        if not self.diagnostics:
+            return
+        labels = y_batch.detach().cpu().reshape(-1).to(torch.long)
+        if labels.numel() == 0:
+            return
+        num_classes = max(int(labels.max().item()) + 1, 1)
+        if self.label_mode == "3class":
+            num_classes = max(num_classes, 3)
+        counts = torch.bincount(labels, minlength=num_classes).tolist()
+        total = float(sum(counts))
+        self.diagnostics[-1]["batch_size"] = int(total)
+        for class_index, count in enumerate(counts):
+            self.diagnostics[-1][f"true_class_{class_index}_count"] = int(count)
+            self.diagnostics[-1][f"true_class_{class_index}_ratio"] = float(count / total) if total else 0.0
+        self.diagnostics[-1]["true_max_class_ratio"] = float(max(counts) / total) if total else 0.0
+        self.diagnostics[-1]["true_num_present_classes"] = int(sum(1 for count in counts if count > 0))
+
+    def get_diagnostics(self):
+        return list(self.diagnostics)
+
     @torch.no_grad()
     def update_ema(self):
         for layer in self.bn_layers:
@@ -140,9 +179,11 @@ def forward_and_adapt(x, wrapper):
     model.train()
 
     gate = 1.0
+    raw_gate = 1.0
     confidence = None
     if wrapper.use_gate:
-        gate, confidence = estimate_batch_gate(x, wrapper)
+        raw_gate, confidence = estimate_batch_gate(x, wrapper)
+        gate = wrapper.min_gate + (1.0 - wrapper.min_gate) * raw_gate
 
     wrapper.set_bn_gate(gate)
     outputs = model(x)
@@ -164,6 +205,20 @@ def forward_and_adapt(x, wrapper):
         optimizer.zero_grad()
 
     wrapper.update_ema()
+    source_weight, ema_weight, batch_weight = wrapper.effective_weights(gate)
+    wrapper.add_diagnostic(
+        {
+            "raw_gate": float(raw_gate),
+            "effective_gate": float(gate),
+            "confidence": float(confidence) if confidence is not None else None,
+            "updated": int(should_update),
+            "effective_source_weight": float(source_weight),
+            "effective_ema_weight": float(ema_weight),
+            "effective_batch_weight": float(batch_weight),
+            "probe_gate": float(wrapper.probe_gate),
+            "min_gate": float(wrapper.min_gate),
+        }
+    )
     return outputs
 
 

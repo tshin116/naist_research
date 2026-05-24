@@ -33,6 +33,11 @@ METHOD_LABELS = {
     "source": "Source",
     "tent": "Tent",
     "ema_tent": "EMATent",
+    "ema_tent_probe025": "EMATentProbe025",
+    "ema_tent_probe050": "EMATentProbe050",
+    "ema_tent_probe100": "EMATentProbe100",
+    "ema_tent_mingate025": "EMATentMinGate025",
+    "ema_tent_mingate050": "EMATentMinGate050",
     "ema_tent_safe": "EMATentSafe",
     "ema_tent_adaptive": "EMATentAdaptive",
     "oftta": "OFTTA",
@@ -130,12 +135,15 @@ def evaluate_method(args, target_loader, device, criterion):
             adapt=True,
             num_classes=getattr(args, "num_classes", None),
         )
+        if hasattr(adapted_model, "get_diagnostics"):
+            metrics["_tta_diagnostics"] = adapted_model.get_diagnostics()
     return {
         "accuracy": metrics["accuracy"],
         "f1_non_stress": metrics["f1_non_stress"],
         "f1_stress": metrics["f1_stress"],
         "f1_class_2": metrics.get("f1_class_2", None),
         "mean_f1": metrics["mean_f1"],
+        "_tta_diagnostics": metrics.get("_tta_diagnostics", []),
     }
 
 
@@ -170,6 +178,43 @@ def dataframe_to_markdown(df):
         for row in rows
     ]
     return "\n".join([header_line, sep_line] + row_lines)
+
+
+def write_gate_summary(diagnostics_df, output_path):
+    rows = []
+    group_cols = ["Method"]
+    if "Method" not in diagnostics_df.columns:
+        return
+    for method, group in diagnostics_df.groupby(group_cols):
+        if isinstance(method, tuple):
+            method = method[0]
+        row = {"Method": method, "Batches": int(len(group))}
+        for column in [
+            "raw_gate",
+            "effective_gate",
+            "effective_batch_weight",
+            "effective_source_weight",
+            "effective_ema_weight",
+            "true_max_class_ratio",
+            "true_num_present_classes",
+            "updated",
+        ]:
+            if column in group.columns:
+                row[f"{column}_mean"] = float(group[column].mean())
+                row[f"{column}_min"] = float(group[column].min())
+                row[f"{column}_max"] = float(group[column].max())
+        rows.append(row)
+
+    summary = pd.DataFrame(rows)
+    display = summary.copy()
+    for column in display.columns:
+        if column not in {"Method", "Batches"}:
+            display[column] = display[column].map(format_float)
+
+    with open(output_path, "w", encoding="utf-8") as handle:
+        handle.write("# EMA-Tent Gate Diagnostics\n\n")
+        handle.write(dataframe_to_markdown(display))
+        handle.write("\n")
 
 
 def save_metric_barplot(df, metric_suffix, ylabel, title, output_path, methods):
@@ -266,6 +311,7 @@ def main():
     out_dir = make_output_dir(base_args)
 
     rows = []
+    diagnostic_rows = []
     for subject in subjects:
         print(f"=== {subject} ===")
         target_args = build_args(cli_args, "source", subject)
@@ -285,6 +331,8 @@ def main():
             if metrics["f1_class_2"] is not None:
                 row[f"{prefix}_F1_2"] = metrics["f1_class_2"]
             row[f"{prefix}_MacroF1"] = metrics["mean_f1"]
+            for diagnostic in metrics.get("_tta_diagnostics", []):
+                diagnostic_rows.append({"Subject": subject, "Method": prefix, **diagnostic})
             print(
                 f"  {prefix}: Acc={metrics['accuracy']:.4f}, "
                 f"F1(0)={metrics['f1_non_stress']:.4f}, "
@@ -310,7 +358,13 @@ def main():
     amusement_f1_plot_path = os.path.join(out_dir, "source_tent_oftta_amusement_f1.png")
     accuracy_plot_path = os.path.join(out_dir, "source_tent_oftta_accuracy.png")
     average_plot_path = os.path.join(out_dir, "source_tent_oftta_average.png")
+    diagnostics_path = os.path.join(out_dir, "ema_tent_batch_diagnostics.csv")
+    diagnostics_summary_path = os.path.join(out_dir, "ema_tent_gate_summary.md")
     summary_df.to_csv(csv_path, index=False)
+    if diagnostic_rows:
+        diagnostics_df = pd.DataFrame(diagnostic_rows)
+        diagnostics_df.to_csv(diagnostics_path, index=False)
+        write_gate_summary(diagnostics_df, diagnostics_summary_path)
 
     display_df = summary_df.copy()
     for column in numeric_cols:
@@ -379,6 +433,9 @@ def main():
         print(f"Amusement F1 plot saved to: {amusement_f1_plot_path}")
     print(f"Accuracy plot saved to: {accuracy_plot_path}")
     print(f"Average plot saved to: {average_plot_path}")
+    if diagnostic_rows:
+        print(f"EMA-Tent diagnostics saved to: {diagnostics_path}")
+        print(f"EMA-Tent gate summary saved to: {diagnostics_summary_path}")
 
 
 if __name__ == "__main__":

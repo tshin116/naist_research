@@ -115,6 +115,8 @@ def evaluate_model(model, data_loader, device, criterion=None, adapt=False, num_
             y_batch = y_batch.to(device)
 
             logits = model(x_batch)
+            if hasattr(model, "record_batch_labels"):
+                model.record_batch_labels(y_batch)
             loss = criterion(logits, y_batch)
             batch_size = y_batch.size(0)
             total_loss += loss.item() * batch_size
