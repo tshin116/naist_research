@@ -1,46 +1,148 @@
 # NAIST Research Workspace
 
-このリポジトリは研究用の作業ディレクトリをまとめたものです。現在の主なプロジェクトは `WESAD_TTA` と `self_learning_wesad` です。
+このリポジトリは、研究用コードと実験結果をまとめた作業ディレクトリです。現在の主プロジェクトは `WESAD_TTA/` です。
 
-## Main Projects
+## Main Project
 
 ### `WESAD_TTA/`
 
-WESAD データセットを用いた test-time adaptation (TTA) 実験の中心プロジェクトです。
+ウェアラブル生体信号を用いた感情推定に対して、Test-Time Adaptation (TTA) を比較する研究コードです。
 
-主な内容は以下です。
+対象データセット:
 
-- WESAD の 3 クラス感情推定実験
-- 1D-CNN による LOSO 評価
-- Source, Tent, OFTTA, MemOFTTA, EMA-Tent の比較
-- batch composition bias の分析
-- t-SNE による被験者差の可視化
-- 論文用の実験結果・図・分析メモ
+- WESAD
+  - stress/no-stress 2クラス分類
+  - baseline/stress/amusement 3クラス分類
+- CASE
+  - arousal 2クラス分類
+  - valence 2クラス分類
+- EmoWear
+  - arousal 2クラス分類
+  - valence 2クラス分類
 
-詳細は [`WESAD_TTA/Readme.md`](WESAD_TTA/Readme.md) を参照してください。
+比較手法:
 
-### `self_learning_wesad/`
+- Source
+- Norm
+- Tent
+- OFTTA
+- EMA-Tent
+- DynaMix EMA-Tent
+- TEMA
+- DUA
+- RoTTA
+- NOTE
+- DELTA
 
-WESAD 関連の自己学習・前処理・データ確認用の作業ディレクトリです。
+主な実装:
 
-現在は WESAD データ本体や補助的な実験コードを含む場合があります。データファイルはサイズが大きく、Git 管理に含めるべきでないものがあるため、コミット対象にする前に内容を確認してください。
+- 1D-CNN + BatchNorm1d
+- LOSO source model training
+- target stream に対する test-time adaptation
+- WESAD の batch composition bias 分析
+- DynaMix EMA-Tent の提案・比較
+- CASE / EmoWear への拡張評価
+
+最初に読むファイル:
+
+- `WESAD_TTA/PROJECT_OVERVIEW_FOR_SUPERVISOR.md`
+- `WESAD_TTA/README.md`
+- `WESAD_TTA/SHARING_GUIDE.md`
+- `WESAD_TTA/新手法の説明文/dynamix_ema_tent_method.md`
+
+古い詳細ガイド:
+
+- `WESAD_TTA/Readme.md`
+
+`Readme.md` は初期のWESAD中心の詳細ガイドです。現在の共有用入口は `WESAD_TTA/README.md` と `WESAD_TTA/PROJECT_OVERVIEW_FOR_SUPERVISOR.md` です。
+
+## Sharing
+
+GitHubには、コード・設定・説明文・checkpoint・主要ログを含めます。
+
+データ本体は容量が大きいためGit管理には含めません。
+
+Git管理から除外している主なもの:
+
+- `WESAD_TTA/data/`
+- raw dataset
+- `.venv/`
+- `__pycache__/`
+- 共有用アーカイブ `*.tar.gz`
+- 外部cloneした参照リポジトリ
+
+Google Drive等で別共有するデータアーカイブ:
+
+```text
+WESAD_TTA_data_260616.tar.gz
+```
+
+このアーカイブは、`WESAD_TTA/` の1つ上の階層で展開します。
+
+```bash
+cd /path/to/naist_reserch
+tar -xzf WESAD_TTA_data_260616.tar.gz
+```
+
+展開後に以下の構造になれば正しいです。
+
+```text
+naist_reserch/
+  WESAD_TTA/
+    data/
+      case/
+      emowear/
+      wesad/
+```
+
+`WESAD_TTA/` の中で展開すると `WESAD_TTA/WESAD_TTA/data/` になってしまうため、避けてください。
+
+## Share Archives
+
+コード・設定・ログ・checkpointのみの共有アーカイブ:
+
+```text
+WESAD_TTA_share_260616.tar.gz
+```
+
+データのみの共有アーカイブ:
+
+```text
+WESAD_TTA_data_260616.tar.gz
+```
+
+GitHubを使う場合は、通常は `WESAD_TTA_share_260616.tar.gz` は不要です。GitHub clone後に `WESAD_TTA_data_260616.tar.gz` だけを展開すれば、processed data を使った再実行ができます。
 
 ## External or Reference Repositories
 
-以下のディレクトリは、既存研究・実装確認・比較・移植のために外部から clone したもの、または参照用コードです。基本的には本研究の主実装ではありません。
+以下は既存研究の確認や比較実装の参考としてcloneした外部リポジトリです。主実装ではありません。
 
 - `OFTTA/`
 - `tent/`
 - `pytorch-classification/`
 - `deep-residual-networks/`
 - `wesad/`
+- `RealisticTTA/`
+- `RoTTA/`
+- `NOTE/`
+- `DUA/`
+- `DELTA/`
+- `Personalized_Affective_Computing/`
 
-これらは手法理解、実装移植、比較実験の参考として利用しています。変更が必要な場合でも、主プロジェクトである `WESAD_TTA/` への影響を確認してから扱います。
+これらは原則としてGit管理に含めず、実装上の対応内容は `WESAD_TTA/docs/` に研究メモとして残します。
 
-## Repository Notes
+## Other Directories
 
-- 通常の開発・分析作業は `WESAD_TTA/` を中心に行います。
-- `self_learning_wesad/WESAD/` のような生データは、原則として Git に追加しません。
-- 外部 clone 由来のディレクトリに出ている差分は、研究本体の変更とは分けて扱います。
-- コミット時は、`WESAD_TTA/` の実装・設定・論文用分析結果と、外部参照コードや生データを混ぜないようにします。
+### `self_learning_wesad/`
 
+WESADの初期実験、前処理確認、補助的な検証に使ったディレクトリです。現在の主実装は `WESAD_TTA/` に移っています。
+
+### `case_dataset/`
+
+CASE raw data 置き場です。raw data はGit管理対象外です。
+
+## Notes
+
+- 通常の研究コード確認は `WESAD_TTA/` だけ見れば十分です。
+- 先生・共同研究者に共有する場合は、まず `WESAD_TTA/PROJECT_OVERVIEW_FOR_SUPERVISOR.md` を案内してください。
+- データを含めて再実行する場合は、GitHub clone後に `WESAD_TTA_data_260616.tar.gz` を展開してください。
