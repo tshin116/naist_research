@@ -1,0 +1,16 @@
+# WESAD 2-class binary evaluation with shuffled target batches.
+dataset: wesad
+dataset_dir: ../self_learning_wesad/WESAD
+processed_dir: ./data/wesad/processed_binary
+use_processed: true
+subjects: null
+window_seconds: 5
+sampling_rate: 700
+window_size: 3500
+num_channels: 8
+num_classes: 2
+label_mode: binary
+calibration_windows: 60
+batch_size: 64
+num_workers: 0
+target_shuffle: true

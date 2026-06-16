@@ -9,7 +9,7 @@ import random
 import numpy as np
 import torch
 
-from data_processing import wesad
+from data_processing import case, emowear, wesad
 from models.cnn1d import StressCNN1D
 
 
@@ -47,15 +47,22 @@ def get_model(args):
     raise ValueError(f"Unknown model: {args.model}")
 
 
+def get_data_module(args):
+    """設定された dataset に対応する data_processing module を返す。"""
+    if args.dataset == "wesad":
+        return wesad
+    if args.dataset == "case":
+        return case
+    if args.dataset == "emowear":
+        return emowear
+    raise ValueError(f"Unknown dataset: {args.dataset}")
+
+
 def get_dataset(args, subjects_data=None):
     """設定に従って LOSO 用 DataLoader を作成する。"""
-    if args.dataset == "wesad":
-        return wesad.get_loso_loaders(args, subjects_data=subjects_data)
-    raise ValueError(f"Unknown dataset: {args.dataset}")
+    return get_data_module(args).get_loso_loaders(args, subjects_data=subjects_data)
 
 
 def get_target_dataset(args):
     """評価専用に target 被験者だけの DataLoader を作成する。"""
-    if args.dataset == "wesad":
-        return wesad.get_target_loader(args)
-    raise ValueError(f"Unknown dataset: {args.dataset}")
+    return get_data_module(args).get_target_loader(args)

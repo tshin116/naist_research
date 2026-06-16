@@ -1,0 +1,7 @@
+# Test-time normalization with Dropout disabled.
+# BN layers use current batch statistics, while non-BN stochastic layers stay in eval mode.
+adaption: norm
+tta_steps: 1
+tta_lr: 0.0001
+episodic: false
+disable_dropout: true

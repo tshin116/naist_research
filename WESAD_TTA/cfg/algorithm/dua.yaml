@@ -1,0 +1,9 @@
+# DUA-style dynamic unsupervised BN adaptation.
+adaption: dua
+tta_steps: 1
+tta_lr: 0.0001
+episodic: false
+
+dua_initial_momentum: 0.1
+dua_decay_factor: 0.94
+dua_min_momentum: 0.005

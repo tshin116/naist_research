@@ -1,0 +1,15 @@
+batch_size: 64
+block_length: null
+dataset_cfg: ./cfg/dataset/wesad_3class.yaml
+default_cfg: ./cfg/default.yaml
+methods:
+- source
+- tent
+- oftta
+- dynamix_ema_tent
+- tema
+resume: ./ckpt_3class
+run_name: WESAD3class_TEMA_smoke_S2
+stream_mode: original
+subjects:
+- S2

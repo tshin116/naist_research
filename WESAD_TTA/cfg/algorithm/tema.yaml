@@ -1,0 +1,10 @@
+# TEMA / RealisticTTA norm_ema:
+# update BN running statistics with test-time EMA, then predict with updated stats.
+adaption: tema
+tta_steps: 1
+tta_lr: 0.0001
+episodic: false
+
+# RealisticTTA README suggests momentum depends on batch size.
+# For WESAD batch_size=64, 0.1 is a conservative default.
+tema_momentum: 0.1

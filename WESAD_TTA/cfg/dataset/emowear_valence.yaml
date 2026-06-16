@@ -1,0 +1,20 @@
+# EmoWear dataset, binary valence classification with E4/BH3 signals.
+dataset: emowear
+dataset_dir: /mnt/c/Users/kojo/Downloads/csv/csv
+processed_dir: ./data/emowear/processed_valence
+use_processed: true
+subjects: null
+window_seconds: 10
+sampling_rate: 50
+window_size: 500
+stride_size: 250
+num_channels: 8
+num_classes: 2
+label_mode: binary
+label_type: VALENCE
+label_threshold_mode: global_median
+label_threshold: 5.1
+batch_size: 64
+num_workers: 0
+target_shuffle: false
+resume: ./ckpt_emowear_valence

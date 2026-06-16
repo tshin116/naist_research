@@ -1,0 +1,27 @@
+batch_size: 64
+dataset_cfg: ./cfg/dataset/wesad_binary_processed.yaml
+default_cfg: ./cfg/default.yaml
+methods:
+- source
+- norm
+- tent
+- oftta
+- ema_tent
+resume: ./ckpt_fixed
+run_name: WESAD2class_binaryCache_SourceNormTentOFTTAEMATent
+subjects:
+- S10
+- S11
+- S13
+- S14
+- S15
+- S16
+- S17
+- S2
+- S3
+- S4
+- S5
+- S6
+- S7
+- S8
+- S9

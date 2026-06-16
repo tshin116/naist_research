@@ -36,6 +36,11 @@ slurm-*.out
 pytorch-classification/data/
 wesad/data/
 wesad/dataset/
+WESAD_TTA/data/**
+!WESAD_TTA/data/
+!WESAD_TTA/data/.gitkeep
+case_dataset/data/
+self_learning_wesad/WESAD/
 
 # Model checkpoints and learned weights
 *.h5
@@ -44,6 +49,9 @@ wesad/dataset/
 *.pth
 *.ckpt
 *.onnx
+!WESAD_TTA/ckpt*/
+!WESAD_TTA/ckpt*/**
+!WESAD_TTA/ckpt*/**/*.pt
 
 # Generated experiment outputs
 loso_results*.csv
@@ -62,3 +70,16 @@ deep-residual-networks/.git/
 pytorch-classification/.git/
 tent/.git/
 wesad/.git/
+
+# External comparison repositories cloned for reference.
+# Their behavior is summarized in WESAD_TTA/docs rather than vendored here.
+DELTA/
+DUA/
+NOTE/
+RealisticTTA/
+RoTTA/
+Personalized_Affective_Computing/
+
+# Local share bundles.
+WESAD_TTA_share_*.tar.gz
+WESAD_TTA_share_*.zip

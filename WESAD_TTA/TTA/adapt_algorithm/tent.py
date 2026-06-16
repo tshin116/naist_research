@@ -5,19 +5,20 @@ from copy import deepcopy
 import torch
 import torch.nn as nn
 
-from TTA.adapt_algorithm.common import entropy_from_logits
+from TTA.adapt_algorithm.common import entropy_from_logits, set_dropout_eval
 
 
 class Tent(nn.Module):
     """forward 時にテストバッチで自己適応するラッパーモジュール。"""
 
-    def __init__(self, model, optimizer, steps=1, episodic=False, label_mode="binary"):
+    def __init__(self, model, optimizer, steps=1, episodic=False, label_mode="binary", disable_dropout=False):
         super().__init__()
         self.model = model
         self.optimizer = optimizer
         self.steps = steps
         self.episodic = episodic
         self.label_mode = label_mode
+        self.disable_dropout = disable_dropout
         if steps <= 0:
             raise ValueError("tent requires at least one adaptation step")
 
@@ -31,7 +32,13 @@ class Tent(nn.Module):
 
         outputs = None
         for _ in range(self.steps):
-            outputs = forward_and_adapt(x, self.model, self.optimizer, self.label_mode)
+            outputs = forward_and_adapt(
+                x,
+                self.model,
+                self.optimizer,
+                self.label_mode,
+                self.disable_dropout,
+            )
         return outputs
 
     def reset(self):
@@ -40,9 +47,11 @@ class Tent(nn.Module):
 
 
 @torch.enable_grad()
-def forward_and_adapt(x, model, optimizer, label_mode):
+def forward_and_adapt(x, model, optimizer, label_mode, disable_dropout=False):
     """元の Tent 実装に合わせ、forward 出力を返した後続バッチへ更新を反映する。"""
     model.train()
+    if disable_dropout:
+        set_dropout_eval(model)
 
     outputs = model(x)
 
@@ -70,7 +79,7 @@ def collect_params(model):
     return params, names
 
 
-def configure_model(model):
+def configure_model(model, disable_dropout=False):
     """Tent 用にモデルを設定する。
 
     モデル全体を train mode にしたうえで、勾配更新は BatchNorm1d の
@@ -85,6 +94,8 @@ def configure_model(model):
             module.track_running_stats = False
             module.running_mean = None
             module.running_var = None
+    if disable_dropout:
+        set_dropout_eval(model)
     check_model(model)
     return model
 

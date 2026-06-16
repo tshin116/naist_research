@@ -15,10 +15,9 @@ from sklearn.metrics import classification_report
 from sklearn.utils import shuffle
 
 from config import parse_args
-from data_processing.wesad import load_data_per_subject, make_loader, stack_subjects
 from metrics import CLASS_NAMES, evaluate_model, format_confusion_matrix
 from train import fit_model
-from utils import get_device, get_model, set_seed
+from utils import get_data_module, get_device, get_model, set_seed
 
 
 def checkpoint_path(args, test_subject):
@@ -38,9 +37,10 @@ def make_output_dir(args):
 
 def train_fixed_model(subjects_data, train_subjects, args, device):
     """指定された train subjects 全体で固定 epoch 学習する。"""
-    x_train, y_train = stack_subjects(subjects_data, train_subjects)
+    data_module = get_data_module(args)
+    x_train, y_train = data_module.stack_subjects(subjects_data, train_subjects)
     x_train, y_train = shuffle(x_train, y_train, random_state=args.seed)
-    train_loader = make_loader(
+    train_loader = data_module.make_loader(
         x_train,
         y_train,
         args.batch_size,
@@ -101,7 +101,8 @@ def main():
 
     print(f"Using device: {device}")
     print(f"Training mode: fixed_epoch_no_inner_loso, epochs={args.max_epochs}")
-    subjects_data = load_data_per_subject(args)
+    data_module = get_data_module(args)
+    subjects_data = data_module.load_data_per_subject(args)
     if not subjects_data:
         raise SystemExit("No data loaded.")
 
@@ -118,7 +119,7 @@ def main():
         model, history, criterion = train_fixed_model(subjects_data, train_subjects, args, device)
         x_test = subjects_data[test_subject]["X"]
         y_test = subjects_data[test_subject]["y"]
-        test_loader = make_loader(
+        test_loader = data_module.make_loader(
             x_test,
             y_test,
             args.batch_size,

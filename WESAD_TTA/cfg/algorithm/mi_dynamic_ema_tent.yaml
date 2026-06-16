@@ -1,0 +1,21 @@
+# MI-gated Dynamic EMA-Tent full setting.
+adaption: mi_dynamic_ema_tent
+tent_lr: 0.0001
+tent_steps: 1
+episodic: false
+
+ema_tent_source_weight: 0.2
+ema_tent_ema_weight: 0.5
+ema_tent_batch_weight: 0.3
+ema_momentum: 0.80
+
+mi_gate: true
+gate_aware_ema: true
+dynamic_mixture_weights: true
+gate_threshold: 0.05
+mi_loss_gate: true
+mi_probe_batch_weight: 0.0
+mi_gate_eps: 1.0e-12
+
+w_batch_max: 0.3
+rho_k: 512

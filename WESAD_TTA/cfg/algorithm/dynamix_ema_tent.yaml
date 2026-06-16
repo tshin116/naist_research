@@ -1,0 +1,27 @@
+# DynaMix EMA-Tent:
+# original EMA-Tent style gate + fixed EMA update + dynamic source/EMA/batch mixture.
+# This isolates the effect of dynamic mixture weights without MI gate or gate-aware EMA.
+adaption: mi_dynamic_ema_tent
+tent_lr: 0.0001
+tent_steps: 1
+episodic: false
+
+ema_tent_source_weight: 0.2
+ema_tent_ema_weight: 0.5
+ema_tent_batch_weight: 0.3
+ema_momentum: 0.80
+
+# Use original EMA-Tent style batch-diversity gate, not MI gate.
+mi_gate: false
+gate_aware_ema: false
+dynamic_mixture_weights: true
+gate_threshold: 0.2
+mi_loss_gate: true
+mi_probe_batch_weight: 0.0
+mi_gate_eps: 1.0e-12
+
+mi_gate_power: 1.0
+mi_min_gate: 0.0
+
+w_batch_max: 0.3
+rho_k: 128

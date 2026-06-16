@@ -1,0 +1,11 @@
+# NOTE-style FIFO memory entropy minimization.
+adaption: note
+tent_lr: 0.0001
+tent_steps: 1
+episodic: false
+
+note_memory_size: 64
+note_update_every: 64
+note_epochs: 1
+note_lr: 0.0001
+note_use_learned_stats: false

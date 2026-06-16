@@ -1,0 +1,29 @@
+batch_size: 64
+block_length: null
+dataset_cfg: ./cfg/dataset/wesad_3class.yaml
+default_cfg: ./cfg/default.yaml
+methods:
+- source
+- tent
+- oftta
+- dynamix_ema_tent
+- realistic_tta
+resume: ./ckpt_3class
+run_name: WESAD3class_SourceTentOFTTADynaMixRealisticTTA
+stream_mode: original
+subjects:
+- S10
+- S11
+- S13
+- S14
+- S15
+- S16
+- S17
+- S2
+- S3
+- S4
+- S5
+- S6
+- S7
+- S8
+- S9

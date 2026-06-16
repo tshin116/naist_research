@@ -1,0 +1,17 @@
+# EMA-Tent m=0.80 with original Tent learning rate scale.
+adaption: ema_tent
+tent_lr: 0.001
+tent_steps: 1
+episodic: false
+
+ema_tent_source_weight: 0.2
+ema_tent_ema_weight: 0.5
+ema_tent_batch_weight: 0.3
+ema_tent_momentum: 0.80
+
+ema_tent_use_gate: true
+ema_tent_gate_threshold: 0.2
+ema_tent_gate_power: 1.0
+ema_tent_min_confidence: 0.0
+ema_tent_loss_gate: true
+ema_tent_probe_gate: 0.0

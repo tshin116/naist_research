@@ -1,0 +1,19 @@
+# CASE dataset, personalized binary arousal classification.
+dataset: case
+dataset_dir: ../Personalized_Affective_Computing/archives/Case
+processed_dir: ./data/case/processed_arousal
+use_processed: true
+subjects: null
+window_seconds: 10
+sampling_rate: 50
+label_sampling_rate: 20
+window_size: 500
+stride_size: 250
+num_channels: 8
+num_classes: 2
+label_mode: binary
+label_type: AROUSAL
+batch_size: 64
+num_workers: 0
+target_shuffle: false
+resume: ./ckpt_case_arousal

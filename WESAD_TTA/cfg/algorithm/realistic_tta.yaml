@@ -1,0 +1,15 @@
+# RealisticTTA-style layer-wise BatchNorm rectification.
+# Adapted from /home/shinsaku-t/work/naist_reserch/RealisticTTA for BatchNorm1d.
+adaption: realistic_tta
+tta_steps: 1
+tta_lr: 0.0001
+episodic: false
+
+# Target statistics EMA inside each BN layer.
+realistic_tta_target_momentum: 0.1
+
+# Maximum source prior used after layer-wise divergence normalization.
+realistic_tta_prior_scale: 0.5
+
+# EMA over layer-wise priors after each test batch.
+realistic_tta_prior_ema_momentum: 0.9

@@ -1,0 +1,5 @@
+# Tent with original Tent learning rate scale.
+adaption: tent
+tent_lr: 0.001
+tent_steps: 1
+episodic: false

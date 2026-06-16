@@ -1,0 +1,30 @@
+batch_size: 64
+dataset_cfg: ./cfg/dataset/wesad_3class.yaml
+default_cfg: ./cfg/default.yaml
+methods:
+- source
+- norm
+- norm_bn_only
+- tent
+- tent_bn_only
+- oftta
+- ema_tent_grid_s20_e50_b30_m080
+- ema_tent_grid_s20_e50_b30_m080_bn_only
+resume: ./ckpt_3class
+run_name: WESAD3class_m080_dropout_ablation
+subjects:
+- S10
+- S11
+- S13
+- S14
+- S15
+- S16
+- S17
+- S2
+- S3
+- S4
+- S5
+- S6
+- S7
+- S8
+- S9

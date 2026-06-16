@@ -4,6 +4,8 @@ from copy import deepcopy
 
 import torch.nn as nn
 
+from TTA.adapt_algorithm.common import set_dropout_eval
+
 
 class NORM(nn.Module):
     """BatchNorm1d をテストバッチ統計で動かす適応なし更新系 TTA。"""
@@ -11,7 +13,14 @@ class NORM(nn.Module):
     def __init__(self, args, model, eps=1e-5, momentum=0.1, reset_stats=False, no_stats=True):
         super().__init__()
         self.args = args
-        self.model = configure_model(model, eps, momentum, reset_stats, no_stats)
+        self.model = configure_model(
+            model,
+            eps,
+            momentum,
+            reset_stats,
+            no_stats,
+            disable_dropout=getattr(args, "disable_dropout", False),
+        )
         self.model_state = deepcopy(self.model.state_dict())
 
     def forward(self, x):
@@ -37,8 +46,11 @@ def collect_stats(model):
     return stats, names
 
 
-def configure_model(model, eps, momentum, reset_stats, no_stats):
+def configure_model(model, eps, momentum, reset_stats, no_stats, disable_dropout=False):
     """BatchNorm1d をテストバッチ統計で forward するよう設定する。"""
+    if disable_dropout:
+        model.eval()
+        set_dropout_eval(model)
     for module in model.modules():
         if isinstance(module, nn.BatchNorm1d):
             module.train()

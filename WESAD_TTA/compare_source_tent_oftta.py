@@ -22,17 +22,36 @@ import torch
 import yaml
 
 from config import load_yaml
-from data_processing.wesad import discover_subjects
 from metrics import evaluate_model, make_criterion, move_criterion_to_device
 from TTA.setup import get_adaptation
-from utils import get_device, get_model, get_target_dataset, set_seed
+from utils import get_data_module, get_device, get_model, get_target_dataset, set_seed
 
 
 METHODS = ["source", "tent", "oftta"]
 METHOD_LABELS = {
     "source": "Source",
     "tent": "Tent",
+    "tent_bn_only": "TentBnOnly",
+    "tent_lr1e3": "TentLR1e3",
+    "tent_bn_only_lr1e3": "TentBnOnlyLR1e3",
     "ema_tent": "EMATent",
+    "mi_dynamic_ema_tent": "MIDynamicEMATent",
+    "mi_dynamic_ema_tent_relaxed": "MIDynamicRelaxed",
+    "mi_dynamic_ema_tent_relaxed_anchor": "MIDynamicRelaxedAnchor",
+    "mi_dynamic_ema_tent_fast_ema": "MIDynamicFastEMA",
+    "mi_dynamic_ema_tent_fixed_ema_relaxed": "MIDynamicFixedEMARelaxed",
+    "dynamix_ema_tent": "DynaMixEMATent",
+    "realistic_tta": "RealisticTTA",
+    "tema": "TEMA",
+    "dua": "DUA",
+    "note": "NOTE",
+    "rotta": "RoTTA",
+    "delta": "DELTA",
+    "mi_ema_tent_mi_gate_only": "MIEMATentGateOnly",
+    "mi_ema_tent_gate_aware": "MIEMATentGateAware",
+    "mi_ema_tent_dynamic": "MIDynamicEMATent",
+    "mi_ema_tent_mi_gate_only_relaxed": "MIGateOnlyRelaxed",
+    "mi_ema_tent_gate_aware_relaxed": "MIGateAwareRelaxed",
     "ema_tent_probe025": "EMATentProbe025",
     "ema_tent_probe050": "EMATentProbe050",
     "ema_tent_probe100": "EMATentProbe100",
@@ -40,8 +59,13 @@ METHOD_LABELS = {
     "ema_tent_mingate050": "EMATentMinGate050",
     "ema_tent_safe": "EMATentSafe",
     "ema_tent_adaptive": "EMATentAdaptive",
+    "ema_tent_grid_s20_e50_b30_m080_lr1e3": "EmaTentGridS20E50B30M080LR1e3",
+    "ema_tent_grid_s20_e50_b30_m080_bn_only": "EmaTentGridS20E50B30M080BnOnly",
+    "ema_tent_grid_s20_e50_b30_m080_bn_only_lr1e3": "EmaTentGridS20E50B30M080BnOnlyLR1e3",
     "oftta": "OFTTA",
     "mem_oftta": "MemOFTTA",
+    "norm": "Norm",
+    "norm_bn_only": "NormBnOnly",
 }
 PLOT_COLORS = [
     "#4C78A8",
@@ -66,6 +90,8 @@ def parse_args():
     parser.add_argument("--device", type=str, default=None)
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--batch_size", type=int, default=None)
+    parser.add_argument("--stream_mode", type=str, default=None, choices=["original", "shuffle", "class_block", "synthetic_block"])
+    parser.add_argument("--block_length", type=int, default=None)
     parser.add_argument("--run_name", type=str, default=None)
     return parser.parse_args()
 
@@ -90,6 +116,11 @@ def build_args(cli_args, method, subject):
         cfg["seed"] = cli_args.seed
     if cli_args.batch_size is not None:
         cfg["batch_size"] = cli_args.batch_size
+    if cli_args.stream_mode is not None:
+        cfg["stream_mode"] = cli_args.stream_mode
+        cfg["target_shuffle"] = cli_args.stream_mode == "shuffle"
+    if cli_args.block_length is not None:
+        cfg["block_length"] = cli_args.block_length
     return SimpleNamespace(**cfg)
 
 
@@ -155,8 +186,13 @@ def resolve_subjects(cli_args):
     subjects = dataset_cfg.get("subjects")
     if subjects:
         return subjects
+    cfg = {}
+    cfg.update(load_yaml(cli_args.default_cfg))
+    cfg.update(dataset_cfg)
+    cfg.update(load_yaml("./cfg/algorithm/source.yaml"))
+    args = SimpleNamespace(**cfg)
     dataset_dir = os.path.abspath(dataset_cfg["dataset_dir"])
-    return sorted(discover_subjects(dataset_dir), key=lambda subject: int(subject[1:]))
+    return get_data_module(args).discover_subjects(dataset_dir)
 
 
 def format_float(value):
@@ -190,6 +226,19 @@ def write_gate_summary(diagnostics_df, output_path):
             method = method[0]
         row = {"Method": method, "Batches": int(len(group))}
         for column in [
+            "g_mi",
+            "diversity_norm",
+            "sample_entropy_norm",
+            "w_source",
+            "w_ema",
+            "w_batch",
+            "alpha",
+            "rho",
+            "n_eff",
+            "entropy_updated",
+            "loss_entropy",
+            "pred_max_class_ratio",
+            "pred_num_present_classes",
             "raw_gate",
             "effective_gate",
             "effective_batch_weight",
@@ -197,6 +246,7 @@ def write_gate_summary(diagnostics_df, output_path):
             "effective_ema_weight",
             "true_max_class_ratio",
             "true_num_present_classes",
+            "true_imbalance",
             "updated",
         ]:
             if column in group.columns:
@@ -215,6 +265,40 @@ def write_gate_summary(diagnostics_df, output_path):
         handle.write("# EMA-Tent Gate Diagnostics\n\n")
         handle.write(dataframe_to_markdown(display))
         handle.write("\n")
+
+
+def write_stream_summary(summary_df, diagnostics_df, output_path, methods, stream_mode, block_length):
+    """stream mode 実験用に性能と batch 偏り指標を横断表へまとめる。"""
+    if diagnostics_df is None or diagnostics_df.empty:
+        return
+
+    subject_rows = summary_df[~summary_df["Subject"].isin(["Average", "Std"])].copy()
+    rows = []
+    for _, perf_row in subject_rows.iterrows():
+        subject = perf_row["Subject"]
+        for method in methods:
+            label = method_label(method)
+            row = {
+                "Subject": subject,
+                "Method": label,
+                "stream_mode": stream_mode,
+                "block_length": block_length,
+                "accuracy": perf_row.get(f"{label}_Acc"),
+                "macro_f1": perf_row.get(f"{label}_MacroF1"),
+            }
+            diag = diagnostics_df[
+                (diagnostics_df["Subject"] == subject)
+                & (diagnostics_df["Method"] == label)
+            ]
+            if not diag.empty:
+                if "true_max_class_ratio" in diag.columns:
+                    row["single_class_batch_ratio"] = float((diag["true_max_class_ratio"] >= 0.999999).mean())
+                    row["max_class_ratio"] = float(diag["true_max_class_ratio"].mean())
+                if "true_imbalance" in diag.columns:
+                    row["imbalance"] = float(diag["true_imbalance"].mean())
+            rows.append(row)
+
+    pd.DataFrame(rows).to_csv(output_path, index=False)
 
 
 def save_metric_barplot(df, metric_suffix, ylabel, title, output_path, methods):
@@ -294,7 +378,7 @@ def make_output_dir(args):
     current_time = datetime.now().strftime("%y%m%d_%H%M%S")
     if getattr(args, "run_name", None):
         current_time = f"{current_time}_{args.run_name}"
-    out_dir = os.path.join(args.out_path, "wesad", "compare_source_tent_oftta", current_time)
+    out_dir = os.path.join(args.out_path, args.dataset, "compare_source_tent_oftta", current_time)
     os.makedirs(out_dir, exist_ok=True)
     return out_dir
 
@@ -360,11 +444,20 @@ def main():
     average_plot_path = os.path.join(out_dir, "source_tent_oftta_average.png")
     diagnostics_path = os.path.join(out_dir, "ema_tent_batch_diagnostics.csv")
     diagnostics_summary_path = os.path.join(out_dir, "ema_tent_gate_summary.md")
+    stream_summary_path = os.path.join(out_dir, "tta_stream_summary.csv")
     summary_df.to_csv(csv_path, index=False)
     if diagnostic_rows:
         diagnostics_df = pd.DataFrame(diagnostic_rows)
         diagnostics_df.to_csv(diagnostics_path, index=False)
         write_gate_summary(diagnostics_df, diagnostics_summary_path)
+        write_stream_summary(
+            summary_df,
+            diagnostics_df,
+            stream_summary_path,
+            methods,
+            getattr(base_args, "stream_mode", "original"),
+            getattr(base_args, "block_length", None),
+        )
 
     display_df = summary_df.copy()
     for column in numeric_cols:
@@ -419,6 +512,8 @@ def main():
                 "dataset_cfg": cli_args.dataset_cfg,
                 "resume": base_args.resume,
                 "batch_size": base_args.batch_size,
+                "stream_mode": getattr(base_args, "stream_mode", "original"),
+                "block_length": getattr(base_args, "block_length", None),
                 "run_name": cli_args.run_name,
             },
             handle,
@@ -436,6 +531,7 @@ def main():
     if diagnostic_rows:
         print(f"EMA-Tent diagnostics saved to: {diagnostics_path}")
         print(f"EMA-Tent gate summary saved to: {diagnostics_summary_path}")
+        print(f"TTA stream summary saved to: {stream_summary_path}")
 
 
 if __name__ == "__main__":

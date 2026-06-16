@@ -302,6 +302,50 @@ def make_class_balanced_order(y_data, batch_size, num_classes, seed=42):
     return np.asarray(ordered, dtype=np.int64)
 
 
+def make_class_block_order(y_data, num_classes=None, seed=42):
+    """同一クラスが連続する class-block 順序を作る。
+
+    診断用の stream mode であり、TTA 更新にはラベルを渡さない。
+    """
+    rng = np.random.default_rng(seed)
+    if num_classes is None:
+        num_classes = int(np.max(y_data)) + 1
+    ordered = []
+    for class_idx in range(num_classes):
+        indices = np.where(y_data == class_idx)[0]
+        rng.shuffle(indices)
+        ordered.extend(indices.tolist())
+    return np.asarray(ordered, dtype=np.int64)
+
+
+def make_synthetic_block_order(y_data, block_length=128, num_classes=None, seed=42):
+    """クラス別 window を block_length ごとに並べた疑似 block stream を作る。
+
+    各クラスのサンプルをシャッフル後に block_length 単位で分割し、クラスを
+    round-robin でつなぐ。各サンプルは重複なしで 1 回だけ使う。
+    """
+    rng = np.random.default_rng(seed)
+    if num_classes is None:
+        num_classes = int(np.max(y_data)) + 1
+    block_length = max(int(block_length), 1)
+    class_blocks = []
+    for class_idx in range(num_classes):
+        indices = np.where(y_data == class_idx)[0]
+        rng.shuffle(indices)
+        blocks = [indices[start : start + block_length].tolist() for start in range(0, len(indices), block_length)]
+        class_blocks.append(blocks)
+
+    ordered = []
+    max_blocks = max((len(blocks) for blocks in class_blocks), default=0)
+    for block_idx in range(max_blocks):
+        class_order = list(range(num_classes))
+        rng.shuffle(class_order)
+        for class_idx in class_order:
+            if block_idx < len(class_blocks[class_idx]):
+                ordered.extend(class_blocks[class_idx][block_idx])
+    return np.asarray(ordered, dtype=np.int64)
+
+
 def make_target_loader(
     x_data,
     y_data,
@@ -312,8 +356,34 @@ def make_target_loader(
     label_mode="binary",
     num_classes=None,
     seed=42,
+    stream_mode="original",
+    block_length=128,
 ):
     """評価用 target loader を作る。"""
+    if stream_mode == "shuffle":
+        shuffle_data = True
+    elif stream_mode == "class_block":
+        if num_classes is None:
+            num_classes = int(np.max(y_data)) + 1
+        order = make_class_block_order(y_data, num_classes=num_classes, seed=seed)
+        x_data = x_data[order]
+        y_data = y_data[order]
+        shuffle_data = False
+    elif stream_mode == "synthetic_block":
+        if num_classes is None:
+            num_classes = int(np.max(y_data)) + 1
+        order = make_synthetic_block_order(
+            y_data,
+            block_length=block_length,
+            num_classes=num_classes,
+            seed=seed,
+        )
+        x_data = x_data[order]
+        y_data = y_data[order]
+        shuffle_data = False
+    elif stream_mode != "original":
+        raise ValueError(f"Unknown stream_mode: {stream_mode}")
+
     if class_balanced:
         if num_classes is None:
             num_classes = int(np.max(y_data)) + 1
@@ -377,6 +447,7 @@ def get_target_loader(args):
     """
     subject_data = load_or_preprocess_subject(args, args.target_domain)
     target_shuffle = getattr(args, "target_shuffle", False)
+    stream_mode = getattr(args, "stream_mode", "shuffle" if target_shuffle else "original")
     target_loader = make_target_loader(
         subject_data["X"],
         subject_data["y"],
@@ -387,6 +458,8 @@ def get_target_loader(args):
         label_mode=getattr(args, "label_mode", "binary"),
         num_classes=getattr(args, "num_classes", None),
         seed=getattr(args, "seed", 42),
+        stream_mode=stream_mode,
+        block_length=getattr(args, "block_length", 128),
     )
     return target_loader
 

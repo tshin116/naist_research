@@ -1,0 +1,3 @@
+Subject,Method,stream_mode,block_length,accuracy,macro_f1,single_class_batch_ratio,max_class_ratio,imbalance
+S2,Source,original,,0.5400943396226415,0.2352336928608115,,,
+S2,MIDynamicEMATent,original,,0.5283018867924528,0.23443223443223446,0.7142857142857143,0.8683035714285714,0.534970238095238

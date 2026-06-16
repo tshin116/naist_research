@@ -1,0 +1,7 @@
+# Tent with Dropout disabled.
+# BN affine parameters are updated, BN uses current batch statistics, Dropout stays in eval mode.
+adaption: tent
+tent_lr: 0.0001
+tent_steps: 1
+episodic: false
+disable_dropout: true

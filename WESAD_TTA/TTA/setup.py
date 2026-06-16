@@ -2,7 +2,7 @@
 
 import torch
 
-from TTA.adapt_algorithm import ema_tent, mem_oftta, norm, oftta, pl, sar, shot, t3a, tast, tast_bn, tent
+from TTA.adapt_algorithm import delta, dua, ema_tent, mem_oftta, mi_dynamic_ema_tent, norm, note, oftta, pl, realistic_tta, rotta, sar, shot, t3a, tast, tast_bn, tema, tent
 
 
 def setup_source(args, model):
@@ -13,7 +13,7 @@ def setup_source(args, model):
 
 def setup_tent(args, model):
     """Tent 用に BatchNorm1d だけを更新可能にしてラップする。"""
-    model = tent.configure_model(model)
+    model = tent.configure_model(model, disable_dropout=getattr(args, "disable_dropout", False))
     params, _ = tent.collect_params(model)
     optimizer = torch.optim.Adam(params, lr=args.tent_lr, betas=(0.9, 0.999), weight_decay=0.0)
     return tent.Tent(
@@ -22,6 +22,7 @@ def setup_tent(args, model):
         steps=args.tent_steps,
         episodic=args.episodic,
         label_mode=getattr(args, "label_mode", "binary"),
+        disable_dropout=getattr(args, "disable_dropout", False),
     )
 
 
@@ -40,8 +41,47 @@ def setup_ema_tent(args, model):
     )
 
 
+def setup_mi_dynamic_ema_tent(args, model):
+    """MI-gated Dynamic EMA-Tent 用に BN1d 統計混合を設定する。"""
+    model = mi_dynamic_ema_tent.configure_model(model, args)
+    params, _ = mi_dynamic_ema_tent.collect_params(model)
+    optimizer = torch.optim.Adam(params, lr=args.tent_lr, betas=(0.9, 0.999), weight_decay=0.0)
+    return mi_dynamic_ema_tent.MIDynamicEMATent(
+        model,
+        optimizer,
+        steps=args.tent_steps,
+        episodic=args.episodic,
+        label_mode=getattr(args, "label_mode", "binary"),
+        args=args,
+    )
+
+
 def setup_norm(args, model):
     return norm.NORM(args, model)
+
+
+def setup_realistic_tta(args, model):
+    return realistic_tta.RealisticTTA(args, model)
+
+
+def setup_tema(args, model):
+    return tema.TEMA(args, model)
+
+
+def setup_dua(args, model):
+    return dua.DUA(args, model)
+
+
+def setup_note(args, model):
+    return note.NOTE(args, model)
+
+
+def setup_rotta(args, model):
+    return rotta.RoTTA(args, model)
+
+
+def setup_delta(args, model):
+    return delta.DELTA(args, model)
 
 
 def setup_pl(args, model):
@@ -100,8 +140,22 @@ def get_adaptation(args, base_model):
         return setup_tent(args, base_model)
     if args.adaption == "ema_tent":
         return setup_ema_tent(args, base_model)
+    if args.adaption == "mi_dynamic_ema_tent":
+        return setup_mi_dynamic_ema_tent(args, base_model)
     if args.adaption == "norm":
         return setup_norm(args, base_model)
+    if args.adaption == "realistic_tta":
+        return setup_realistic_tta(args, base_model)
+    if args.adaption == "tema":
+        return setup_tema(args, base_model)
+    if args.adaption == "dua":
+        return setup_dua(args, base_model)
+    if args.adaption == "note":
+        return setup_note(args, base_model)
+    if args.adaption == "rotta":
+        return setup_rotta(args, base_model)
+    if args.adaption == "delta":
+        return setup_delta(args, base_model)
     if args.adaption == "pl":
         return setup_pl(args, base_model)
     if args.adaption == "shot":

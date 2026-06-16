@@ -1,0 +1,12 @@
+# RoTTA-style class-balanced memory with teacher EMA consistency.
+adaption: rotta
+tent_lr: 0.0001
+tent_steps: 1
+episodic: false
+
+rotta_memory_size: 64
+rotta_update_frequency: 64
+rotta_lr: 0.0001
+rotta_ema_nu: 0.001
+rotta_lambda_t: 1.0
+rotta_lambda_u: 1.0

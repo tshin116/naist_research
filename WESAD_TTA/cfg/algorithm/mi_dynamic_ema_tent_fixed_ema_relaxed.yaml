@@ -1,0 +1,27 @@
+# Middle-ground variant:
+# - MI gate controls current-batch mixture and entropy update
+# - EMA update keeps fixed momentum
+# This tests whether gate-aware EMA was the main cause of over-conservatism.
+adaption: mi_dynamic_ema_tent
+tent_lr: 0.0001
+tent_steps: 1
+episodic: false
+
+ema_tent_source_weight: 0.2
+ema_tent_ema_weight: 0.5
+ema_tent_batch_weight: 0.3
+ema_momentum: 0.80
+
+mi_gate: true
+gate_aware_ema: false
+dynamic_mixture_weights: true
+gate_threshold: 0.0
+mi_loss_gate: true
+mi_probe_batch_weight: 0.2
+mi_gate_eps: 1.0e-12
+
+mi_gate_power: 0.5
+mi_min_gate: 0.1
+
+w_batch_max: 0.4
+rho_k: 128

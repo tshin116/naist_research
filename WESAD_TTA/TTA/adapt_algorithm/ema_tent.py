@@ -10,7 +10,7 @@ from copy import deepcopy
 import torch
 import torch.nn as nn
 
-from TTA.adapt_algorithm.common import entropy_from_logits, logits_to_class_logits
+from TTA.adapt_algorithm.common import entropy_from_logits, logits_to_class_logits, set_dropout_eval
 
 
 class EMABatchNorm1d(nn.Module):
@@ -96,6 +96,7 @@ class EMATent(nn.Module):
         self.episodic = episodic
         self.label_mode = label_mode
         self.args = args
+        self.disable_dropout = getattr(args, "disable_dropout", False)
         if steps <= 0:
             raise ValueError("ema_tent requires at least one adaptation step")
 
@@ -177,6 +178,8 @@ def forward_and_adapt(x, wrapper):
     model = wrapper.model
     optimizer = wrapper.optimizer
     model.train()
+    if wrapper.disable_dropout:
+        set_dropout_eval(model)
 
     gate = 1.0
     raw_gate = 1.0
@@ -266,6 +269,8 @@ def configure_model(model, args):
     for module in model.modules():
         if isinstance(module, EMABatchNorm1d):
             module.layer.requires_grad_(True)
+    if getattr(args, "disable_dropout", False):
+        set_dropout_eval(model)
     check_model(model)
     return model
 

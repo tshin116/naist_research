@@ -158,6 +158,18 @@ def configure_bn1d_for_adaptation(model, train=True, update_params=True, use_bat
     return model
 
 
+def set_dropout_eval(model):
+    """Dropoutだけをeval modeに戻す。
+
+    Tent系ではBNをtrain modeにする必要があるが、Dropoutまで有効にすると
+    推論時のランダム性が混ざる。BNの状態は変えず、Dropoutだけを無効化する。
+    """
+    for module in model.modules():
+        if isinstance(module, nn.Dropout):
+            module.eval()
+    return model
+
+
 def copy_model_and_optimizer(model, optimizer=None):
     """reset 用に model と optimizer の状態を保存する。"""
     model_state = deepcopy(model.state_dict())
